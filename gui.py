@@ -51,37 +51,51 @@ class App(tk.Tk):
         self._build_ui()
         self._set_ui_state_disconnected()
 
+        # Force geometry computation — fixes blank window on macOS
+        self.update_idletasks()
+
     # ══════════════════════════════════════════════════════════════
     # UI CONSTRUCTION
     # ══════════════════════════════════════════════════════════════
 
     def _build_ui(self):
-        # Main horizontal panes
-        self._paned = ttk.PanedWindow(self, orient=tk.HORIZONTAL)
-        self._paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Main layout: grid with 2 columns (live view | controls)
+        self.columnconfigure(0, weight=3)
+        self.columnconfigure(1, weight=1)
+        self.rowconfigure(0, weight=1)
 
         # ── Left: Live View ──
-        lv_frame = ttk.LabelFrame(self._paned, text="Live View")
-        self._paned.add(lv_frame, weight=3)
+        lv_frame = ttk.LabelFrame(self, text="Live View")
+        lv_frame.grid(row=0, column=0, sticky="nsew", padx=(5, 2), pady=5)
 
         self._lv_label = ttk.Label(lv_frame, anchor=tk.CENTER)
         self._lv_label.pack(fill=tk.BOTH, expand=True)
 
-        # ── Right: Controls ──
-        ctrl_frame = ttk.Frame(self._paned)
-        self._paned.add(ctrl_frame, weight=1)
+        # ── Right: Controls (scrollable) ──
+        ctrl_frame = ttk.Frame(self)
+        ctrl_frame.grid(row=0, column=1, sticky="nsew", padx=(2, 5), pady=5)
+        ctrl_frame.rowconfigure(0, weight=1)
+        ctrl_frame.columnconfigure(0, weight=1)
 
-        canvas = tk.Canvas(ctrl_frame)
-        scrollbar = ttk.Scrollbar(ctrl_frame, orient=tk.VERTICAL, command=canvas.yview)
-        self._scroll_frame = ttk.Frame(canvas)
+        self._ctrl_canvas = tk.Canvas(ctrl_frame, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(ctrl_frame, orient=tk.VERTICAL, command=self._ctrl_canvas.yview)
+        self._scroll_frame = ttk.Frame(self._ctrl_canvas)
+
         self._scroll_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self._ctrl_canvas.configure(scrollregion=self._ctrl_canvas.bbox("all"))
         )
-        canvas.create_window((0, 0), window=self._scroll_frame, anchor=tk.NW)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # Propagate canvas width to inner frame so widgets fill horizontally
+        self._ctrl_canvas.bind(
+            "<Configure>",
+            lambda e: self._ctrl_canvas.itemconfigure(self._canvas_window_id, width=e.width)
+        )
+        self._canvas_window_id = self._ctrl_canvas.create_window(
+            (0, 0), window=self._scroll_frame, anchor=tk.NW
+        )
+        self._ctrl_canvas.configure(yscrollcommand=scrollbar.set)
+        self._ctrl_canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
 
         parent = self._scroll_frame
 
