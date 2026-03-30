@@ -236,15 +236,15 @@ class App(tk.Tk):
         # Mode selector
         mode_frame = ttk.Frame(bracket_frame)
         mode_frame.pack(fill=tk.X, padx=5, pady=(5, 2))
-        ttk.Label(mode_frame, text="Mode:").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Label(mode_frame, text="Mode:").grid(row=0, column=0, sticky=tk.W)
         self._bracket_mode_var = tk.StringVar(value="step")
-        for text, val in [("Step-by-step", "step"),
-                          ("Sweep (single)", "sweep_single"),
-                          ("Sweep (burst)", "sweep_burst")]:
+        for i, (text, val) in enumerate([("Step-by-step", "step"),
+                                          ("Sweep (single)", "sweep_single"),
+                                          ("Sweep (burst)", "sweep_burst")]):
             ttk.Radiobutton(
                 mode_frame, text=text, variable=self._bracket_mode_var,
                 value=val, command=self._on_bracket_mode_changed
-            ).pack(side=tk.LEFT, padx=3)
+            ).grid(row=i, column=1, sticky=tk.W, padx=3)
 
         # Container for mode-specific options (keeps pack order stable)
         self._mode_options_container = ttk.Frame(bracket_frame)
@@ -518,8 +518,13 @@ class App(tk.Tk):
         """Update focus display with the polled focalposition value."""
         if value is not None:
             self._lbl_focus_pos.config(text=f"Position: {value}  (0=near, 100=inf)")
+            # Keep the target spinbox in sync
+            try:
+                self._focus_target_var.set(int(value))
+            except (ValueError, tk.TclError):
+                pass
         else:
-            self._lbl_focus_pos.config(text="Position: —  (lens switch → AF?)")
+            self._lbl_focus_pos.config(text="Position: —  (no readback)")
 
     # ══════════════════════════════════════════════════════════════
     # CAMERA PARAMETERS
@@ -623,7 +628,7 @@ class App(tk.Tk):
         threading.Thread(target=do_move, daemon=True).start()
 
     def _on_focus_go(self):
-        """Drive lens to the target focalposition (0-100) using closed-loop."""
+        """Drive lens to the target focalposition (0-100) using open-loop."""
         try:
             target = self._focus_target_var.get()
         except tk.TclError:
@@ -632,7 +637,9 @@ class App(tk.Tk):
         def do_move():
             try:
                 reached = self._controller.move_to_position(target)
-                self.after(0, self._update_focus_value_display, reached if reached >= 0 else None)
+                # In open-loop mode reached is -1; show the target value instead
+                display = reached if reached >= 0 else target
+                self.after(0, self._update_focus_value_display, display)
             except Exception as e:
                 self.after(0, messagebox.showerror, "Focus Error", str(e))
 

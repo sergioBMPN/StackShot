@@ -282,7 +282,9 @@ class FocusBracket:
     # ─── Sweep single (rapid single captures while moving) ────────
 
     def _run_sweep_single(self, step_size: float, download_path: Optional[str]):
-        """Sweep A→B firing rapid single captures at each micro-step."""
+        """Sweep A→B firing rapid single captures at each micro-step.
+        Captures go to card only (no download during sweep) for speed.
+        Downloads all photos at end if download_path is set."""
         if self.on_start:
             self.on_start()
 
@@ -308,7 +310,7 @@ class FocusBracket:
             # Estimate total steps for progress feedback
             estimated_steps = max(1, int(total_distance / magnitude))
 
-            # Sweep: step + capture, step + capture...
+            # Sweep: capture (to card) + step, capture + step...
             for step_idx in range(estimated_steps + 20):  # margin for overshoot
                 if self._stop_event.is_set():
                     self._notify_progress(photos_taken, photos_taken,
@@ -317,30 +319,43 @@ class FocusBracket:
 
                 self._notify_progress(
                     step_idx, estimated_steps,
-                    f"Sweep: capturing photo {photos_taken + 1}..."
+                    f"Sweep: photo {photos_taken + 1} "
+                    f"(step {step_idx + 1}/{estimated_steps})..."
                 )
 
-                # Capture (no retry in sweep — speed is priority)
+                # Capture to card only (no download) for speed
                 try:
-                    self._controller.capture_image(download_path)
+                    self._controller.capture_image(None)
                     photos_taken += 1
                 except Exception as e:
                     logger.warning("Sweep capture failed at step %d: %s", step_idx, e)
-                    # Try once more after brief recovery
-                    time.sleep(0.5)
+                    time.sleep(1.0)
                     try:
-                        self._controller.capture_image(download_path)
+                        self._controller.capture_image(None)
                         photos_taken += 1
                     except Exception:
                         logger.error("Sweep capture retry failed, stopping sweep")
                         break
 
                 # Step focus toward B
-                self._controller.move_focus(direction * magnitude)
+                try:
+                    self._controller.move_focus(direction * magnitude)
+                except Exception as e:
+                    logger.warning("Focus step failed at step %d: %s", step_idx, e)
+                    break
                 time.sleep(0.15)
 
-            self._notify_progress(photos_taken, photos_taken,
-                                  f"Sweep complete: {photos_taken} photos")
+            # Download all photos from card if requested
+            if download_path and photos_taken > 0:
+                self._notify_progress(photos_taken, photos_taken,
+                                      f"Downloading {photos_taken} photos...")
+                downloaded = self._download_new_photos(download_path)
+                self._notify_progress(photos_taken, photos_taken,
+                                      f"Complete: {downloaded} photos downloaded")
+            else:
+                self._notify_progress(photos_taken, photos_taken,
+                                      f"Sweep complete: {photos_taken} photos on card")
+
             if self.on_complete:
                 self.on_complete(photos_taken)
 

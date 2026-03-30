@@ -313,8 +313,8 @@ class CameraController:
                 except gp.GPhoto2Error as e:
                     error_code = e.code if hasattr(e, 'code') else 0
                     logger.error("Capture failed (attempt %d): %s", attempt + 1, e)
-                    # I/O error (-7): try recovery before giving up
-                    if error_code == -7 and attempt == 0:
+                    # Recoverable errors: -7 I/O, -1 Unspecified, -52 USB lost
+                    if error_code in (-7, -1, -52) and attempt == 0:
                         time.sleep(1)
                         if self._try_recover_io():
                             continue
