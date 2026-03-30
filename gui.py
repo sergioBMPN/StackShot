@@ -173,16 +173,13 @@ class App(tk.Tk):
         focus_frame = ttk.LabelFrame(parent, text="Focus Control")
         focus_frame.pack(fill=tk.X, padx=5, pady=5)
 
-        ttk.Label(focus_frame, text="Step size:").grid(row=0, column=0, padx=5, pady=2)
-        self._step_size_var = tk.IntVar(value=1)
-        step_combo = ttk.Combobox(
-            focus_frame, textvariable=self._step_size_var,
-            values=[1, 2, 3], state="readonly", width=5
+        # Current position display
+        self._lbl_focus_pos = ttk.Label(
+            focus_frame, text="Position: — (0=near, 100=inf)"
         )
-        step_combo.grid(row=0, column=1, padx=5, pady=2)
-        step_combo.set("1")
-        ttk.Label(focus_frame, text="(1=fine, 3=coarse)").grid(row=0, column=2, padx=2)
+        self._lbl_focus_pos.grid(row=0, column=0, columnspan=3, padx=5, pady=2)
 
+        # Near / Far nudge buttons
         btn_row = ttk.Frame(focus_frame)
         btn_row.grid(row=1, column=0, columnspan=3, pady=5)
         self._btn_near = ttk.Button(btn_row, text="◀ Near", command=self._on_focus_near)
@@ -190,25 +187,22 @@ class App(tk.Tk):
         self._btn_far = ttk.Button(btn_row, text="Far ▶", command=self._on_focus_far)
         self._btn_far.pack(side=tk.LEFT, padx=5)
 
-        self._lbl_focus_pos = ttk.Label(focus_frame, text="Position: 0")
-        self._lbl_focus_pos.grid(row=2, column=0, columnspan=3, pady=2)
-
-        # Direct focus value: spinbox + move button
-        ttk.Label(focus_frame, text="Move value:").grid(
-            row=3, column=0, padx=5, pady=(8, 2), sticky=tk.W
+        # Target position: spinbox (0-100) + Go button
+        ttk.Label(focus_frame, text="Target (0-100):").grid(
+            row=2, column=0, padx=5, pady=(8, 2), sticky=tk.W
         )
-        focus_val_row = ttk.Frame(focus_frame)
-        focus_val_row.grid(row=3, column=1, columnspan=2, padx=5, pady=(8, 2), sticky=tk.W)
-        self._focus_value_var = tk.DoubleVar(value=1.0)
-        self._spin_focus_value = ttk.Spinbox(
-            focus_val_row, from_=-7.0, to=7.0, increment=1.0,
-            textvariable=self._focus_value_var, width=6
+        focus_target_row = ttk.Frame(focus_frame)
+        focus_target_row.grid(row=2, column=1, columnspan=2, padx=5, pady=(8, 2), sticky=tk.W)
+        self._focus_target_var = tk.IntVar(value=50)
+        self._spin_focus_target = ttk.Spinbox(
+            focus_target_row, from_=0, to=100, increment=1,
+            textvariable=self._focus_target_var, width=6
         )
-        self._spin_focus_value.pack(side=tk.LEFT, padx=(0, 5))
-        self._btn_focus_move = ttk.Button(
-            focus_val_row, text="Move", command=self._on_focus_move_value
+        self._spin_focus_target.pack(side=tk.LEFT, padx=(0, 5))
+        self._btn_focus_go = ttk.Button(
+            focus_target_row, text="Go", command=self._on_focus_go
         )
-        self._btn_focus_move.pack(side=tk.LEFT)
+        self._btn_focus_go.pack(side=tk.LEFT)
 
         # ── Focus Bracket ──
         bracket_frame = ttk.LabelFrame(parent, text="Focus Bracket")
@@ -322,8 +316,8 @@ class App(tk.Tk):
         self._btn_capture.config(state=tk.DISABLED)
         self._btn_near.config(state=tk.DISABLED)
         self._btn_far.config(state=tk.DISABLED)
-        self._spin_focus_value.config(state=tk.DISABLED)
-        self._btn_focus_move.config(state=tk.DISABLED)
+        self._spin_focus_target.config(state=tk.DISABLED)
+        self._btn_focus_go.config(state=tk.DISABLED)
         self._btn_set_a.config(state=tk.DISABLED)
         self._btn_set_b.config(state=tk.DISABLED)
         self._btn_start_bracket.config(state=tk.DISABLED)
@@ -336,8 +330,8 @@ class App(tk.Tk):
         self._btn_capture.config(state=tk.NORMAL)
         self._btn_near.config(state=tk.NORMAL)
         self._btn_far.config(state=tk.NORMAL)
-        self._spin_focus_value.config(state=tk.NORMAL)
-        self._btn_focus_move.config(state=tk.NORMAL)
+        self._spin_focus_target.config(state=tk.NORMAL)
+        self._btn_focus_go.config(state=tk.NORMAL)
         self._btn_set_a.config(state=tk.NORMAL)
         self._btn_set_b.config(state=tk.NORMAL)
         self._btn_start_bracket.config(state=tk.NORMAL)
@@ -368,6 +362,16 @@ class App(tk.Tk):
         self._refresh_params()
         self._start_liveview()
         self._start_focus_poll()
+        # Check if focalposition is available and warn about lens switch
+        if not self._bracket.check_focal_position():
+            messagebox.showwarning(
+                "Focus Position Unavailable",
+                "Cannot read focus position from camera.\n\n"
+                "IMPORTANT: Set the lens AF/MF switch to AF\n"
+                "(camera body Focus Mode stays Manual).\n\n"
+                "The PTP manual focus command requires the lens\n"
+                "AF motor to be electronically active."
+            )
 
     def _connect_fail(self, error: str):
         self._lbl_status.config(text="Connection failed", foreground="red")
@@ -434,14 +438,14 @@ class App(tk.Tk):
         self._poll_focus_position()
 
     def _poll_focus_position(self):
-        """Periodically read the camera's manualfocus value and update the display."""
+        """Periodically read the camera's focalposition and update the display."""
         if not self._focus_poll_running:
             return
 
         def fetch():
             try:
-                value = self._controller.get_focus_value()
-                if value is not None and self._focus_poll_running:
+                value = self._controller.get_focal_position()
+                if self._focus_poll_running:
                     self.after(0, self._update_focus_value_display, value)
             except Exception as e:
                 logger.debug("Focus poll error: %s", e)
@@ -451,13 +455,12 @@ class App(tk.Tk):
 
         threading.Thread(target=fetch, daemon=True).start()
 
-    def _update_focus_value_display(self, value: float):
-        """Update focus display with the polled camera value."""
-        pos = self._bracket._current_position
-        pos_text = f"Position: {pos:+.1f}"
-        if value != 0.0:
-            pos_text += f"  (last cmd: {value:+.0f})"
-        self._lbl_focus_pos.config(text=pos_text)
+    def _update_focus_value_display(self, value):
+        """Update focus display with the polled focalposition value."""
+        if value is not None:
+            self._lbl_focus_pos.config(text=f"Position: {value}  (0=near, 100=inf)")
+        else:
+            self._lbl_focus_pos.config(text="Position: —  (lens switch → AF?)")
 
     # ══════════════════════════════════════════════════════════════
     # CAMERA PARAMETERS
@@ -531,74 +534,80 @@ class App(tk.Tk):
     # ══════════════════════════════════════════════════════════════
 
     def _on_focus_near(self):
-        self._bracket.step_size = self._step_size_var.get()
-
         def do_move():
             try:
                 self._bracket.move_focus_near()
-                self.after(0, self._update_focus_display)
+                pos = self._controller.get_focal_position()
+                if pos is not None:
+                    self.after(0, self._update_focus_value_display, pos)
             except Exception as e:
                 self.after(0, messagebox.showerror, "Focus Error", str(e))
 
         threading.Thread(target=do_move, daemon=True).start()
 
     def _on_focus_far(self):
-        self._bracket.step_size = self._step_size_var.get()
-
         def do_move():
             try:
                 self._bracket.move_focus_far()
-                self.after(0, self._update_focus_display)
+                pos = self._controller.get_focal_position()
+                if pos is not None:
+                    self.after(0, self._update_focus_value_display, pos)
             except Exception as e:
                 self.after(0, messagebox.showerror, "Focus Error", str(e))
 
         threading.Thread(target=do_move, daemon=True).start()
 
-    def _on_focus_move_value(self):
-        """Send the spinbox value as a manualfocus command."""
+    def _on_focus_go(self):
+        """Drive lens to the target focalposition (0-100) using closed-loop."""
         try:
-            value = self._focus_value_var.get()
+            target = self._focus_target_var.get()
         except tk.TclError:
-            return
-        if value == 0.0:
             return
 
         def do_move():
             try:
-                self._bracket.move_focus_value(value)
-                self.after(0, self._update_focus_display)
+                reached = self._controller.move_to_position(target)
+                self.after(0, self._update_focus_value_display, reached if reached >= 0 else None)
             except Exception as e:
                 self.after(0, messagebox.showerror, "Focus Error", str(e))
 
         threading.Thread(target=do_move, daemon=True).start()
 
     def _update_focus_display(self):
-        pos = self._bracket._current_position
-        self._lbl_focus_pos.config(text=f"Position: {pos:+.1f}")
-        self._update_points_label()
+        pos = self._controller.get_focal_position()
+        self._update_focus_value_display(pos)
 
     # ══════════════════════════════════════════════════════════════
     # FOCUS BRACKET
     # ══════════════════════════════════════════════════════════════
 
     def _on_set_point_a(self):
-        self._bracket.step_size = self._step_size_var.get()
-        self._bracket.set_point_a()
-        self._update_points_label()
-        self._update_focus_display()
+        def do_set():
+            try:
+                pos = self._bracket.set_point_a()
+                self.after(0, self._update_points_label)
+                self.after(0, self._update_focus_value_display, pos)
+            except RuntimeError as e:
+                self.after(0, messagebox.showwarning, "Focus Bracket", str(e))
+
+        threading.Thread(target=do_set, daemon=True).start()
 
     def _on_set_point_b(self):
-        try:
-            self._bracket.set_point_b()
-            self._update_points_label()
-        except RuntimeError as e:
-            messagebox.showwarning("Focus Bracket", str(e))
+        def do_set():
+            try:
+                pos = self._bracket.set_point_b()
+                self.after(0, self._update_points_label)
+                self.after(0, self._update_focus_value_display, pos)
+            except RuntimeError as e:
+                self.after(0, messagebox.showwarning, "Focus Bracket", str(e))
+
+        threading.Thread(target=do_set, daemon=True).start()
 
     def _update_points_label(self):
-        a_text = "0" if self._bracket.point_a is not None else "—"
-        b_text = f"{self._bracket.point_b.position:+.1f}" if self._bracket.point_b else "\u2014"
+        a_text = str(self._bracket.point_a.position) if self._bracket.point_a is not None else "—"
+        b_text = str(self._bracket.point_b.position) if self._bracket.point_b else "—"
         dist = self._bracket.total_distance
-        dist_text = f"{dist:.1f}" if dist is not None else "\u2014"
+        dist_text = str(dist) if dist is not None else "—"
         self._lbl_points.config(text=f"A: {a_text} | B: {b_text} | Distance: {dist_text}")
 
     def _on_choose_folder(self, event=None):
@@ -612,11 +621,11 @@ class App(tk.Tk):
             messagebox.showwarning("Focus Bracket", "Set both Point A and Point B first.")
             return
 
-        if self._bracket.total_distance is not None and self._bracket.total_distance < 0.5:
+        if self._bracket.total_distance is not None and self._bracket.total_distance < 1:
             messagebox.showwarning(
                 "Focus Bracket",
                 "Points A and B are at the same position.\n"
-                "Use Near/Far buttons or the slider to move focus\n"
+                "Use Near/Far buttons to move focus\n"
                 "between setting Point A and Point B."
             )
             return
@@ -627,7 +636,6 @@ class App(tk.Tk):
             dl_path = self._download_path
             os.makedirs(dl_path, exist_ok=True)
 
-        self._bracket.step_size = self._step_size_var.get()
         self._bracket_progress["value"] = 0
         self._bracket_progress["maximum"] = num_photos
         self._btn_start_bracket.config(state=tk.DISABLED)
@@ -647,7 +655,6 @@ class App(tk.Tk):
     def _on_reset_bracket(self):
         self._bracket.reset()
         self._update_points_label()
-        self._update_focus_display()
         self._bracket_progress["value"] = 0
         self._lbl_bracket_status.config(text="")
         self._btn_start_bracket.config(state=tk.NORMAL if self._controller.connected else tk.DISABLED)

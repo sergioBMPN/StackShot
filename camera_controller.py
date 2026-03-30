@@ -4,12 +4,12 @@ Wrapper around python-gphoto2 for Sony Alpha 7 III control via USB.
 Provides: connection, config read/write, live view, capture, manual focus drive.
 """
 
-import io
 import logging
 import os
 import platform
 import subprocess
 import threading
+import time
 from typing import Optional
 
 import gphoto2 as gp
@@ -29,16 +29,14 @@ class CameraController:
     # manualfocus range widget (Sony A7 III via PTP)
     # Range: -7.0 to 7.0, step 1.0
     # Negative = near, positive = far
+    # IMPORTANT: lens AF/MF switch must be set to AF for electronic
+    # focus control to work. Camera body focusmode stays "Manual".
     FOCUS_WIDGET = "manualfocus"
     FOCUS_MIN = -7.0
     FOCUS_MAX = 7.0
 
-    # Step size mapping: UI level -> manualfocus value magnitude
-    FOCUS_STEP_MAP = {
-        1: 1.0,   # fine
-        2: 3.0,   # medium
-        3: 7.0,   # coarse
-    }
+    # focalposition: read-only, 0 (nearest) to 100 (infinity)
+    FOCAL_POSITION_WIDGET = "focalposition"
 
     def __init__(self):
         self._camera: Optional[gp.Camera] = None
@@ -275,37 +273,92 @@ class CameraController:
 
     def move_focus(self, value: float):
         """
-        Move focus by a relative amount.
+        Move focus by a relative amount using set_single_config.
         value: float in [-7.0, 7.0]  (negative=near, positive=far)
-        The camera must be in MF or DMF mode.
+        The camera body must be in MF mode AND the lens AF/MF switch must be AF.
+        Uses set_single_config which maps directly to
+        ptp_sony_setdevicecontrolvalueb(ManualFocusAdjust, INT16).
         """
         value = max(self.FOCUS_MIN, min(self.FOCUS_MAX, value))
         with self._lock:
             if not self._connected:
                 return
             try:
-                config = self._camera.get_config(self._context)
-                widget = config.get_child_by_name(self.FOCUS_WIDGET)
+                widget = self._camera.get_single_config(
+                    self.FOCUS_WIDGET, self._context
+                )
                 widget.set_value(value)
-                self._camera.set_config(config, self._context)
+                self._camera.set_single_config(
+                    self.FOCUS_WIDGET, widget, self._context
+                )
                 logger.debug("Focus moved: %s", value)
             except gp.GPhoto2Error as e:
                 logger.error("Focus move failed (value=%s): %s", value, e)
                 raise
 
-    def move_focus_steps(self, direction: str, count: int, step_size: int = 1):
+    # ─── Focal Position (0-100 closed-loop) ───────────────────────
+
+    def get_focal_position(self) -> Optional[int]:
         """
-        Move focus multiple steps in a direction.
-        direction: 'near' or 'far'
-        count: number of steps to take
-        step_size: 1 (fine), 2 (medium), or 3 (coarse)
+        Read the camera's focalposition widget (0=nearest, 100=infinity).
+        This is an actual lens position reported by the camera.
+        Returns None if the widget is not available.
         """
-        magnitude = self.FOCUS_STEP_MAP.get(step_size, 1.0)
-        value = -magnitude if direction == "near" else magnitude
-        for _ in range(count):
+        with self._lock:
+            if not self._connected:
+                return None
+            try:
+                widget = self._camera.get_single_config(
+                    self.FOCAL_POSITION_WIDGET, self._context
+                )
+                return int(float(widget.get_value()))
+            except (gp.GPhoto2Error, ValueError) as e:
+                logger.debug("Cannot read focalposition: %s", e)
+                return None
+
+    def move_to_position(self, target: int, stop_event=None) -> int:
+        """
+        Closed-loop move to a target focal position (0-100).
+        Reads focalposition, sends manualfocus commands, repeats until
+        within ±1 of target or no progress is made.
+        Returns the final focalposition reached.
+        """
+        target = max(0, min(100, target))
+        for _ in range(80):
+            if stop_event and stop_event.is_set():
+                break
+            current = self.get_focal_position()
+            if current is None:
+                logger.warning("focalposition not available, cannot do closed-loop")
+                return -1
+            delta = target - current
+            if abs(delta) <= 1:
+                logger.debug("Reached target %d (current %d)", target, current)
+                return current
+            # Choose magnitude based on distance
+            if abs(delta) > 30:
+                magnitude = 7.0
+            elif abs(delta) > 10:
+                magnitude = 3.0
+            else:
+                magnitude = 1.0
+            value = magnitude if delta > 0 else -magnitude
             self.move_focus(value)
-            import time
-            time.sleep(0.05)  # let the lens settle between steps
+            time.sleep(0.3)
+            # Check if we made progress
+            new_pos = self.get_focal_position()
+            if new_pos is not None and new_pos == current:
+                # No movement — try once more with smaller step
+                if magnitude > 1.0:
+                    value = 1.0 if delta > 0 else -1.0
+                    self.move_focus(value)
+                    time.sleep(0.3)
+                    new_pos = self.get_focal_position()
+                if new_pos is not None and new_pos == current:
+                    logger.warning("Focus stuck at %d, target was %d", current, target)
+                    return current
+        current = self.get_focal_position()
+        return current if current is not None else -1
 
     # ─── Utility ──────────────────────────────────────────────────
 
@@ -319,8 +372,9 @@ class CameraController:
             if not self._connected:
                 return None
             try:
-                config = self._camera.get_config(self._context)
-                widget = config.get_child_by_name(self.FOCUS_WIDGET)
+                widget = self._camera.get_single_config(
+                    self.FOCUS_WIDGET, self._context
+                )
                 return float(widget.get_value())
             except (gp.GPhoto2Error, ValueError) as e:
                 logger.debug("Cannot read focus value: %s", e)

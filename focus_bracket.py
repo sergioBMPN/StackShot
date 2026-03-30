@@ -1,6 +1,7 @@
 """
 focus_bracket.py
 Focus bracketing logic: captures a sequence of photos between two focus points.
+Uses the camera's focalposition (0=nearest, 100=infinity) for closed-loop positioning.
 Runs in a separate thread with cancellation support.
 """
 
@@ -17,26 +18,25 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class FocusPoint:
-    """A focus position stored as cumulative manualfocus value from origin."""
-    position: float = 0.0  # cumulative value in manualfocus units (negative=near, positive=far)
+    """A focus position stored as focalposition (0-100)."""
+    position: int = 0  # 0=nearest, 100=infinity
 
 
 class FocusBracket:
     """
     Manages focus bracketing between two user-defined points.
 
-    The user sets Point A (origin, step_count=0) then moves focus to Point B.
-    The total distance is tracked as a relative step count.
-    During bracketing, the system returns to A and steps evenly toward B,
-    capturing a photo at each position.
+    The user sets Point A then moves focus to Point B.
+    Both points are recorded as focalposition values (0-100).
+    During bracketing, the system drives to A and steps evenly toward B,
+    capturing a photo at each position using closed-loop control.
     """
 
     def __init__(self, controller: CameraController):
         self._controller = controller
         self._point_a: Optional[FocusPoint] = None
         self._point_b: Optional[FocusPoint] = None
-        self._current_position: float = 0.0  # in manualfocus value units from point A
-        self._step_size: int = 1  # 1=finest, 2=medium, 3=coarsest
+        self._has_focal_position: Optional[bool] = None  # cached availability
 
         # Threading
         self._thread: Optional[threading.Thread] = None
@@ -44,19 +44,9 @@ class FocusBracket:
 
         # Callbacks for GUI updates
         self.on_start: Optional[Callable[[], None]] = None  # bracket starting
-        self.on_progress: Optional[Callable[[int, int, str], None]] = None  # (current, total, message)
-        self.on_complete: Optional[Callable[[int], None]] = None  # (photos_taken)
-        self.on_error: Optional[Callable[[str], None]] = None  # (error_message)
-
-    @property
-    def step_size(self) -> int:
-        return self._step_size
-
-    @step_size.setter
-    def step_size(self, value: int):
-        if value not in (1, 2, 3):
-            raise ValueError("step_size must be 1, 2, or 3")
-        self._step_size = value
+        self.on_progress: Optional[Callable[[int, int, str], None]] = None
+        self.on_complete: Optional[Callable[[int], None]] = None
+        self.on_error: Optional[Callable[[str], None]] = None
 
     @property
     def point_a(self) -> Optional[FocusPoint]:
@@ -71,75 +61,70 @@ class FocusBracket:
         return self._thread is not None and self._thread.is_alive()
 
     @property
-    def total_distance(self) -> Optional[float]:
-        """Total distance between A and B in manualfocus units, or None if not both set."""
+    def total_distance(self) -> Optional[int]:
+        """Total distance between A and B in focalposition units, or None."""
         if self._point_a is None or self._point_b is None:
             return None
         return abs(self._point_b.position - self._point_a.position)
 
+    def check_focal_position(self) -> bool:
+        """Check if the camera supports focalposition readback."""
+        if self._has_focal_position is None:
+            pos = self._controller.get_focal_position()
+            self._has_focal_position = pos is not None
+        return self._has_focal_position
+
+    def get_current_position(self) -> Optional[int]:
+        """Read current focalposition from camera."""
+        return self._controller.get_focal_position()
+
     # ─── Point Management ─────────────────────────────────────────
 
-    def set_point_a(self):
-        """Mark current focus position as Point A (origin)."""
-        self._point_a = FocusPoint(position=0.0)
+    def set_point_a(self) -> int:
+        """Mark current focus position as Point A. Returns the position."""
+        pos = self._controller.get_focal_position()
+        if pos is None:
+            raise RuntimeError(
+                "Cannot read focus position from camera.\n"
+                "Make sure:\n"
+                "1. Lens AF/MF switch is set to AF\n"
+                "2. Camera body Focus Mode is Manual"
+            )
+        self._point_a = FocusPoint(position=pos)
         self._point_b = None  # reset B when A changes
-        self._current_position = 0.0
-        logger.info("Focus Point A set (origin)")
+        logger.info("Focus Point A set at focalposition %d", pos)
+        return pos
 
-    def set_point_b(self):
-        """Mark current focus position as Point B."""
+    def set_point_b(self) -> int:
+        """Mark current focus position as Point B. Returns the position."""
         if self._point_a is None:
             raise RuntimeError("Set Point A first")
-        self._point_b = FocusPoint(position=self._current_position)
-        logger.info("Focus Point B set at position %.1f from A", self._current_position)
+        pos = self._controller.get_focal_position()
+        if pos is None:
+            raise RuntimeError(
+                "Cannot read focus position from camera.\n"
+                "Make sure:\n"
+                "1. Lens AF/MF switch is set to AF\n"
+                "2. Camera body Focus Mode is Manual"
+            )
+        self._point_b = FocusPoint(position=pos)
+        logger.info("Focus Point B set at focalposition %d", pos)
+        return pos
 
-    def move_focus_near(self, count: int = 1):
-        """Move focus toward near, track position in manualfocus units."""
-        magnitude = self._controller.FOCUS_STEP_MAP.get(self._step_size, 1.0)
-        self._controller.move_focus_steps("near", count, self._step_size)
-        self._current_position -= magnitude * count
-        logger.debug("Focus moved near %d (mag %.1f), position now %.1f",
-                     count, magnitude, self._current_position)
+    def move_focus_near(self):
+        """Nudge focus toward near (medium speed)."""
+        self._controller.move_focus(-3.0)
+        time.sleep(0.3)
 
-    def move_focus_far(self, count: int = 1):
-        """Move focus toward far, track position in manualfocus units."""
-        magnitude = self._controller.FOCUS_STEP_MAP.get(self._step_size, 1.0)
-        self._controller.move_focus_steps("far", count, self._step_size)
-        self._current_position += magnitude * count
-        logger.debug("Focus moved far %d (mag %.1f), position now %.1f",
-                     count, magnitude, self._current_position)
-
-    def move_focus_value(self, value: float):
-        """Move focus by a raw manualfocus value and track position."""
-        self._controller.move_focus(value)
-        self._current_position += value
-        logger.debug("Focus moved by %.1f, position now %.1f", value, self._current_position)
-
-    # ─── Navigation ───────────────────────────────────────────────
-
-    def _go_to_position(self, target: float):
-        """Move from current_position to target position (in manualfocus value units)."""
-        delta = target - self._current_position
-        if abs(delta) < 0.5:
-            return
-        # Navigate using fine steps (manualfocus value ±1.0)
-        value_per_step = 1.0 if delta > 0 else -1.0
-        steps = round(abs(delta))
-        for i in range(steps):
-            if self._stop_event.is_set():
-                return
-            self._controller.move_focus(value_per_step)
-            self._current_position += value_per_step
-            time.sleep(0.05)
+    def move_focus_far(self):
+        """Nudge focus toward far (medium speed)."""
+        self._controller.move_focus(3.0)
+        time.sleep(0.3)
 
     # ─── Bracket Execution ────────────────────────────────────────
 
     def start(self, num_photos: int, download_path: Optional[str] = None):
-        """
-        Start focus bracketing in a background thread.
-        num_photos: total number of photos to take (including at A and B).
-        download_path: local folder to save photos (None = don't download).
-        """
+        """Start focus bracketing in a background thread."""
         if self._point_a is None or self._point_b is None:
             raise RuntimeError("Set both Point A and Point B first")
         if num_photos < 2:
@@ -162,8 +147,7 @@ class FocusBracket:
             logger.info("Bracket stop requested")
 
     def _run_bracket(self, num_photos: int, download_path: Optional[str]):
-        """Internal: execute the bracket sequence."""
-        # Notify GUI to pause live view etc.
+        """Internal: execute the bracket sequence with closed-loop focus."""
         if self.on_start:
             self.on_start()
 
@@ -171,26 +155,26 @@ class FocusBracket:
         try:
             pos_a = self._point_a.position
             pos_b = self._point_b.position
-            total_distance = pos_b - pos_a  # can be negative
 
-            if abs(total_distance) < 0.5:
+            if pos_a == pos_b:
                 if self.on_error:
                     self.on_error("Points A and B are at the same position. "
                                   "Move focus between setting A and B.")
                 return
 
-            # Calculate positions for each photo (float in manualfocus units)
+            # Calculate target positions for each photo
             positions = []
             for i in range(num_photos):
-                if num_photos == 1:
-                    pos = pos_a
-                else:
-                    pos = pos_a + total_distance * i / (num_photos - 1)
+                t = i / (num_photos - 1)
+                pos = round(pos_a + (pos_b - pos_a) * t)
                 positions.append(pos)
 
-            # Step 1: Return to Point A
-            self._notify_progress(0, num_photos, "Returning to Point A...")
-            self._go_to_position(pos_a)
+            # Step 1: Drive to Point A
+            self._notify_progress(0, num_photos, "Moving to Point A...")
+            reached = self._controller.move_to_position(
+                pos_a, self._stop_event
+            )
+            logger.info("Drove to A: target=%d reached=%d", pos_a, reached)
 
             if self._stop_event.is_set():
                 self._notify_progress(0, num_photos, "Cancelled")
@@ -202,24 +186,26 @@ class FocusBracket:
                     self._notify_progress(photos_taken, num_photos, "Cancelled")
                     return
 
-                # Move to target position
                 self._notify_progress(
                     photos_taken, num_photos,
-                    f"Moving to position {i + 1}/{num_photos}..."
+                    f"Moving to position {target_pos} ({i + 1}/{num_photos})..."
                 )
-                self._go_to_position(target_pos)
+                reached = self._controller.move_to_position(
+                    target_pos, self._stop_event
+                )
+                logger.info("Step %d: target=%d reached=%d", i, target_pos, reached)
 
                 if self._stop_event.is_set():
                     self._notify_progress(photos_taken, num_photos, "Cancelled")
                     return
 
-                # Settle delay after focus move (lens needs time)
+                # Settle delay
                 time.sleep(1.0)
 
-                # Capture with retry logic
+                # Capture with retry
                 self._notify_progress(
                     photos_taken, num_photos,
-                    f"Capturing {i + 1}/{num_photos}..."
+                    f"Capturing {i + 1}/{num_photos} (pos {reached})..."
                 )
                 captured = False
                 for attempt in range(3):
@@ -249,7 +235,7 @@ class FocusBracket:
                 if not captured:
                     return
 
-                # Wait for camera to write image and be ready
+                # Wait for camera to write image
                 time.sleep(2.0)
 
             self._notify_progress(photos_taken, num_photos, "Complete!")
@@ -274,5 +260,4 @@ class FocusBracket:
             self._thread.join(timeout=5)
         self._point_a = None
         self._point_b = None
-        self._current_position = 0.0
         logger.info("Focus bracket state reset")
