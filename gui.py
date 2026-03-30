@@ -193,18 +193,22 @@ class App(tk.Tk):
         self._lbl_focus_pos = ttk.Label(focus_frame, text="Position: 0")
         self._lbl_focus_pos.grid(row=2, column=0, columnspan=3, pady=2)
 
-        # Focus slider — joystick style: drag to set magnitude, release to move
-        ttk.Label(focus_frame, text="Focus Slider (Near ↔ Far):").grid(
-            row=3, column=0, columnspan=3, padx=5, pady=(8, 0), sticky=tk.W
+        # Direct focus value: spinbox + move button
+        ttk.Label(focus_frame, text="Move value:").grid(
+            row=3, column=0, padx=5, pady=(8, 2), sticky=tk.W
         )
-        self._focus_slider_var = tk.DoubleVar(value=0.0)
-        self._focus_slider = tk.Scale(
-            focus_frame, from_=-7.0, to=7.0, resolution=1.0,
-            orient=tk.HORIZONTAL, variable=self._focus_slider_var,
-            label="", showvalue=True, length=200,
+        focus_val_row = ttk.Frame(focus_frame)
+        focus_val_row.grid(row=3, column=1, columnspan=2, padx=5, pady=(8, 2), sticky=tk.W)
+        self._focus_value_var = tk.DoubleVar(value=1.0)
+        self._spin_focus_value = ttk.Spinbox(
+            focus_val_row, from_=-7.0, to=7.0, increment=1.0,
+            textvariable=self._focus_value_var, width=6
         )
-        self._focus_slider.grid(row=4, column=0, columnspan=3, padx=5, pady=2, sticky="ew")
-        self._focus_slider.bind("<ButtonRelease-1>", self._on_focus_slider_release)
+        self._spin_focus_value.pack(side=tk.LEFT, padx=(0, 5))
+        self._btn_focus_move = ttk.Button(
+            focus_val_row, text="Move", command=self._on_focus_move_value
+        )
+        self._btn_focus_move.pack(side=tk.LEFT)
 
         # ── Focus Bracket ──
         bracket_frame = ttk.LabelFrame(parent, text="Focus Bracket")
@@ -318,7 +322,8 @@ class App(tk.Tk):
         self._btn_capture.config(state=tk.DISABLED)
         self._btn_near.config(state=tk.DISABLED)
         self._btn_far.config(state=tk.DISABLED)
-        self._focus_slider.config(state=tk.DISABLED)
+        self._spin_focus_value.config(state=tk.DISABLED)
+        self._btn_focus_move.config(state=tk.DISABLED)
         self._btn_set_a.config(state=tk.DISABLED)
         self._btn_set_b.config(state=tk.DISABLED)
         self._btn_start_bracket.config(state=tk.DISABLED)
@@ -331,7 +336,8 @@ class App(tk.Tk):
         self._btn_capture.config(state=tk.NORMAL)
         self._btn_near.config(state=tk.NORMAL)
         self._btn_far.config(state=tk.NORMAL)
-        self._focus_slider.config(state=tk.NORMAL)
+        self._spin_focus_value.config(state=tk.NORMAL)
+        self._btn_focus_move.config(state=tk.NORMAL)
         self._btn_set_a.config(state=tk.NORMAL)
         self._btn_set_b.config(state=tk.NORMAL)
         self._btn_start_bracket.config(state=tk.NORMAL)
@@ -548,13 +554,14 @@ class App(tk.Tk):
 
         threading.Thread(target=do_move, daemon=True).start()
 
-    def _on_focus_slider_release(self, event=None):
-        """Send the slider value as a manualfocus command, then snap back to 0."""
-        value = self._focus_slider_var.get()
+    def _on_focus_move_value(self):
+        """Send the spinbox value as a manualfocus command."""
+        try:
+            value = self._focus_value_var.get()
+        except tk.TclError:
+            return
         if value == 0.0:
             return
-        # Snap slider back to center immediately
-        self._focus_slider_var.set(0.0)
 
         def do_move():
             try:
