@@ -301,36 +301,50 @@ class CameraController:
     def get_focal_position(self) -> Optional[int]:
         """
         Read the camera's focalposition widget (0=nearest, 100=infinity).
-        This is an actual lens position reported by the camera.
+        Tries get_single_config first, falls back to full config tree.
         Returns None if the widget is not available.
         """
         with self._lock:
             if not self._connected:
                 return None
+            # Method 1: get_single_config (fast)
             try:
                 widget = self._camera.get_single_config(
                     self.FOCAL_POSITION_WIDGET, self._context
                 )
                 return int(float(widget.get_value()))
             except (gp.GPhoto2Error, ValueError) as e:
-                logger.debug("Cannot read focalposition: %s", e)
+                logger.debug("get_single_config focalposition failed: %s", e)
+            # Method 2: full config tree (slower but more compatible)
+            try:
+                config = self._camera.get_config(self._context)
+                widget = config.get_child_by_name(self.FOCAL_POSITION_WIDGET)
+                return int(float(widget.get_value()))
+            except (gp.GPhoto2Error, ValueError) as e:
+                logger.debug("get_config focalposition failed: %s", e)
                 return None
 
     def move_to_position(self, target: int, stop_event=None) -> int:
         """
-        Closed-loop move to a target focal position (0-100).
-        Reads focalposition, sends manualfocus commands, repeats until
-        within ±1 of target or no progress is made.
-        Returns the final focalposition reached.
+        Move to a target focal position (0-100).
+        Uses closed-loop with focalposition readback if available,
+        otherwise falls back to open-loop (dead-reckoning) stepping.
+        Returns the final focalposition reached, or -1 if unknown.
         """
         target = max(0, min(100, target))
+        # Try closed-loop first
+        current = self.get_focal_position()
+        if current is not None:
+            return self._move_to_position_closed(target, current, stop_event)
+        # Fallback: open-loop dead-reckoning
+        logger.warning("focalposition not available, using open-loop fallback")
+        return self._move_to_position_open(target, stop_event)
+
+    def _move_to_position_closed(self, target: int, current: int, stop_event=None) -> int:
+        """Closed-loop move using focalposition readback."""
         for _ in range(80):
             if stop_event and stop_event.is_set():
                 break
-            current = self.get_focal_position()
-            if current is None:
-                logger.warning("focalposition not available, cannot do closed-loop")
-                return -1
             delta = target - current
             if abs(delta) <= 1:
                 logger.debug("Reached target %d (current %d)", target, current)
@@ -345,9 +359,12 @@ class CameraController:
             value = magnitude if delta > 0 else -magnitude
             self.move_focus(value)
             time.sleep(0.3)
-            # Check if we made progress
             new_pos = self.get_focal_position()
-            if new_pos is not None and new_pos == current:
+            if new_pos is None:
+                # Lost readback mid-move, finish with open-loop
+                logger.warning("Lost focalposition readback at %d", current)
+                return current
+            if new_pos == current:
                 # No movement — try once more with smaller step
                 if magnitude > 1.0:
                     value = 1.0 if delta > 0 else -1.0
@@ -357,8 +374,55 @@ class CameraController:
                 if new_pos is not None and new_pos == current:
                     logger.warning("Focus stuck at %d, target was %d", current, target)
                     return current
+            if new_pos is not None:
+                current = new_pos
         current = self.get_focal_position()
         return current if current is not None else -1
+
+    def _move_to_position_open(self, target: int, stop_event=None) -> int:
+        """
+        Open-loop (dead-reckoning) move when focalposition isn't available.
+        Estimates ~1 focalposition unit per magnitude-1 step with 0.3s delay.
+        Returns -1 (position unknown without readback).
+        """
+        # We don't know current position; estimate steps from 0-100 range.
+        # Drive to a known endpoint first, then step toward target.
+        #
+        # Strategy: drive to nearest end (0 or 100) by sending max-magnitude
+        # steps, then step toward target.
+        if target <= 50:
+            # Drive to 0 first (near end)
+            logger.info("Open-loop: driving to near end first")
+            for _ in range(30):
+                if stop_event and stop_event.is_set():
+                    return -1
+                self.move_focus(-7.0)
+                time.sleep(0.25)
+            # Now step toward target (positive direction)
+            steps_needed = target  # ~1 unit per step at magnitude 1
+            logger.info("Open-loop: stepping %d toward target %d", steps_needed, target)
+            for _ in range(steps_needed):
+                if stop_event and stop_event.is_set():
+                    return -1
+                self.move_focus(1.0)
+                time.sleep(0.25)
+        else:
+            # Drive to 100 first (far end)
+            logger.info("Open-loop: driving to far end first")
+            for _ in range(30):
+                if stop_event and stop_event.is_set():
+                    return -1
+                self.move_focus(7.0)
+                time.sleep(0.25)
+            # Now step toward target (negative direction)
+            steps_needed = 100 - target
+            logger.info("Open-loop: stepping %d toward target %d", steps_needed, target)
+            for _ in range(steps_needed):
+                if stop_event and stop_event.is_set():
+                    return -1
+                self.move_focus(-1.0)
+                time.sleep(0.25)
+        return -1
 
     # ─── Utility ──────────────────────────────────────────────────
 
@@ -379,6 +443,40 @@ class CameraController:
             except (gp.GPhoto2Error, ValueError) as e:
                 logger.debug("Cannot read focus value: %s", e)
                 return None
+
+    def list_config_widgets(self) -> list[str]:
+        """
+        Return a list of all config widget names the camera exposes.
+        Useful for diagnostics when a widget can't be found.
+        """
+        with self._lock:
+            if not self._connected:
+                return []
+            try:
+                config = self._camera.get_config(self._context)
+                names = []
+                self._walk_config(config, names)
+                return names
+            except gp.GPhoto2Error as e:
+                logger.warning("Cannot list config widgets: %s", e)
+                return []
+
+    @staticmethod
+    def _walk_config(widget, result: list, prefix: str = ""):
+        """Recursively collect all widget names from the config tree."""
+        name = widget.get_name()
+        wtype = widget.get_type()
+        path = f"{prefix}/{name}" if prefix else name
+        # Only collect leaf widgets (non-section/window)
+        if wtype not in (gp.GP_WIDGET_SECTION, gp.GP_WIDGET_WINDOW):
+            try:
+                val = widget.get_value()
+            except gp.GPhoto2Error:
+                val = "?"
+            result.append(f"{path} = {val}")
+        for i in range(widget.count_children()):
+            child = widget.get_child(i)
+            CameraController._walk_config(child, result, path)
 
     def get_all_params(self) -> dict:
         """

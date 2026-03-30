@@ -68,6 +68,9 @@ class App(tk.Tk):
         # Schedule a delayed size check after the window is displayed
         self.after(500, self._debug_sizes)
 
+        # Auto-connect to camera on startup
+        self.after(100, self._on_connect)
+
     # ══════════════════════════════════════════════════════════════
     # UI CONSTRUCTION
     # ══════════════════════════════════════════════════════════════
@@ -362,6 +365,18 @@ class App(tk.Tk):
         self._refresh_params()
         self._start_liveview()
         self._start_focus_poll()
+        # Log all config widgets for diagnostics
+        def dump_widgets():
+            widgets = self._controller.list_config_widgets()
+            for w in widgets:
+                logger.info("  widget: %s", w)
+            # Check for focalposition specifically
+            focal_names = [w for w in widgets if "focal" in w.lower()]
+            if focal_names:
+                logger.info("Found focal-related widgets: %s", focal_names)
+            else:
+                logger.warning("No focal-related widgets found in config tree")
+        threading.Thread(target=dump_widgets, daemon=True).start()
         # Check if focalposition is available and warn about lens switch
         if not self._bracket.check_focal_position():
             messagebox.showwarning(
@@ -369,8 +384,9 @@ class App(tk.Tk):
                 "Cannot read focus position from camera.\n\n"
                 "IMPORTANT: Set the lens AF/MF switch to AF\n"
                 "(camera body Focus Mode stays Manual).\n\n"
-                "The PTP manual focus command requires the lens\n"
-                "AF motor to be electronically active."
+                "If the switch is already AF, the camera may not\n"
+                "support focalposition readback. Focus bracketing\n"
+                "will use estimated stepping instead."
             )
 
     def _connect_fail(self, error: str):
@@ -584,7 +600,12 @@ class App(tk.Tk):
     def _on_set_point_a(self):
         def do_set():
             try:
-                pos = self._bracket.set_point_a()
+                # Pass target spinbox value as fallback when readback unavailable
+                try:
+                    fallback = self._focus_target_var.get()
+                except tk.TclError:
+                    fallback = None
+                pos = self._bracket.set_point_a(user_pos=fallback)
                 self.after(0, self._update_points_label)
                 self.after(0, self._update_focus_value_display, pos)
             except RuntimeError as e:
@@ -595,7 +616,11 @@ class App(tk.Tk):
     def _on_set_point_b(self):
         def do_set():
             try:
-                pos = self._bracket.set_point_b()
+                try:
+                    fallback = self._focus_target_var.get()
+                except tk.TclError:
+                    fallback = None
+                pos = self._bracket.set_point_b(user_pos=fallback)
                 self.after(0, self._update_points_label)
                 self.after(0, self._update_focus_value_display, pos)
             except RuntimeError as e:

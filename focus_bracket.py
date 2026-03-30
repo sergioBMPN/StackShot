@@ -80,13 +80,21 @@ class FocusBracket:
 
     # ─── Point Management ─────────────────────────────────────────
 
-    def set_point_a(self) -> int:
-        """Mark current focus position as Point A. Returns the position."""
+    def set_point_a(self, user_pos: Optional[int] = None) -> int:
+        """
+        Mark current focus position as Point A. Returns the position.
+        If focalposition is not readable, uses user_pos as fallback.
+        """
         pos = self._controller.get_focal_position()
+        if pos is None and user_pos is not None:
+            pos = user_pos
+            logger.info("Using user-supplied position %d for Point A (no readback)", pos)
         if pos is None:
             raise RuntimeError(
                 "Cannot read focus position from camera.\n"
-                "Make sure:\n"
+                "Enter a target position (0-100) in the Target spinbox,\n"
+                "then use 'Set A at target' instead.\n\n"
+                "Also check:\n"
                 "1. Lens AF/MF switch is set to AF\n"
                 "2. Camera body Focus Mode is Manual"
             )
@@ -95,15 +103,23 @@ class FocusBracket:
         logger.info("Focus Point A set at focalposition %d", pos)
         return pos
 
-    def set_point_b(self) -> int:
-        """Mark current focus position as Point B. Returns the position."""
+    def set_point_b(self, user_pos: Optional[int] = None) -> int:
+        """
+        Mark current focus position as Point B. Returns the position.
+        If focalposition is not readable, uses user_pos as fallback.
+        """
         if self._point_a is None:
             raise RuntimeError("Set Point A first")
         pos = self._controller.get_focal_position()
+        if pos is None and user_pos is not None:
+            pos = user_pos
+            logger.info("Using user-supplied position %d for Point B (no readback)", pos)
         if pos is None:
             raise RuntimeError(
                 "Cannot read focus position from camera.\n"
-                "Make sure:\n"
+                "Enter a target position (0-100) in the Target spinbox,\n"
+                "then use 'Set B at target' instead.\n\n"
+                "Also check:\n"
                 "1. Lens AF/MF switch is set to AF\n"
                 "2. Camera body Focus Mode is Manual"
             )
@@ -260,4 +276,5 @@ class FocusBracket:
             self._thread.join(timeout=5)
         self._point_a = None
         self._point_b = None
+        self._has_focal_position = None  # re-check on next use
         logger.info("Focus bracket state reset")
