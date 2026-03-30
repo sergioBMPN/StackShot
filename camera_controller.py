@@ -26,15 +26,18 @@ class CameraController:
     CONFIG_SHUTTERSPEED = "/main/capturesettings/shutterspeed"
     CONFIG_WHITEBALANCE = "/main/imgsettings/whitebalance"
 
-    # manualfocusdrive step values (Sony)
-    FOCUS_STEPS = {
-        "Near 1": "Near 1",  # finest near
-        "Near 2": "Near 2",
-        "Near 3": "Near 3",  # coarsest near
-        "Far 1": "Far 1",    # finest far
-        "Far 2": "Far 2",
-        "Far 3": "Far 3",    # coarsest far
-        "None": "None",
+    # manualfocus range widget (Sony A7 III via PTP)
+    # Range: -7.0 to 7.0, step 1.0
+    # Negative = near, positive = far
+    FOCUS_WIDGET = "manualfocus"
+    FOCUS_MIN = -7.0
+    FOCUS_MAX = 7.0
+
+    # Step size mapping: UI level -> manualfocus value magnitude
+    FOCUS_STEP_MAP = {
+        1: 1.0,   # fine
+        2: 3.0,   # medium
+        3: 7.0,   # coarse
     }
 
     def __init__(self):
@@ -270,22 +273,24 @@ class CameraController:
 
     # ─── Manual Focus Drive ───────────────────────────────────────
 
-    def move_focus(self, step: str):
+    def move_focus(self, value: float):
         """
-        Move focus by one step.
-        step: one of 'Near 1','Near 2','Near 3','Far 1','Far 2','Far 3','None'
+        Move focus by a relative amount.
+        value: float in [-7.0, 7.0]  (negative=near, positive=far)
         The camera must be in MF or DMF mode.
         """
+        value = max(self.FOCUS_MIN, min(self.FOCUS_MAX, value))
         with self._lock:
             if not self._connected:
                 return
             try:
                 config = self._camera.get_config(self._context)
-                widget = config.get_child_by_name("manualfocusdrive")
-                widget.set_value(step)
+                widget = config.get_child_by_name(self.FOCUS_WIDGET)
+                widget.set_value(value)
                 self._camera.set_config(config, self._context)
+                logger.debug("Focus moved: %s", value)
             except gp.GPhoto2Error as e:
-                logger.error("Focus move failed (%s): %s", step, e)
+                logger.error("Focus move failed (value=%s): %s", value, e)
                 raise
 
     def move_focus_steps(self, direction: str, count: int, step_size: int = 1):
@@ -293,11 +298,14 @@ class CameraController:
         Move focus multiple steps in a direction.
         direction: 'near' or 'far'
         count: number of steps to take
-        step_size: 1, 2, or 3 (maps to Near/Far 1/2/3)
+        step_size: 1 (fine), 2 (medium), or 3 (coarse)
         """
-        step_name = f"{'Near' if direction == 'near' else 'Far'} {step_size}"
+        magnitude = self.FOCUS_STEP_MAP.get(step_size, 1.0)
+        value = -magnitude if direction == "near" else magnitude
         for _ in range(count):
-            self.move_focus(step_name)
+            self.move_focus(value)
+            import time
+            time.sleep(0.05)  # let the lens settle between steps
 
     # ─── Utility ──────────────────────────────────────────────────
 
