@@ -155,6 +155,20 @@ class CameraController:
                 ) from last_error
 
             self._connected = True
+
+            # Set capture target to Memory card to avoid SDRAM buffer
+            # overflow that causes [-7] I/O errors on burst/bracket
+            try:
+                config = self._camera.get_config(self._context)
+                target_widget = config.get_child_by_name("capturetarget")
+                current = target_widget.get_value()
+                if current != "Memory card":
+                    target_widget.set_value("Memory card")
+                    self._camera.set_config(config, self._context)
+                    logger.info("Set capturetarget: %s → Memory card", current)
+            except gp.GPhoto2Error as e:
+                logger.warning("Could not set capturetarget: %s", e)
+
             summary = self._camera.get_summary(self._context)
             model = str(summary)
             logger.info("Connected to camera: %s", model[:120])
@@ -237,39 +251,103 @@ class CameraController:
 
     # ─── Image Capture ────────────────────────────────────────────
 
+    def _try_recover_io(self):
+        """Attempt to recover from a USB I/O error without full reconnect."""
+        logger.info("Attempting I/O recovery...")
+        try:
+            # Re-read config to reset the PTP session
+            self._camera.get_config(self._context)
+            logger.info("I/O recovery: config read OK")
+            return True
+        except gp.GPhoto2Error:
+            pass
+        # Heavier recovery: re-init the camera
+        try:
+            self._camera.exit(self._context)
+            time.sleep(1)
+            self._camera.init(self._context)
+            # Re-set capturetarget after re-init
+            try:
+                config = self._camera.get_config(self._context)
+                tw = config.get_child_by_name("capturetarget")
+                tw.set_value("Memory card")
+                self._camera.set_config(config, self._context)
+            except gp.GPhoto2Error:
+                pass
+            logger.info("I/O recovery: re-init OK")
+            return True
+        except gp.GPhoto2Error as e:
+            logger.error("I/O recovery failed: %s", e)
+            return False
+
     def capture_image(self, download_path: Optional[str] = None) -> Optional[str]:
         """
         Trigger a still capture.
         If download_path is given, download the file to that local path.
         Returns the camera-side file path or the local path if downloaded.
+        On I/O error, attempts recovery and one retry.
         """
         with self._lock:
             if not self._connected:
                 return None
-            try:
-                file_path = self._camera.capture(
-                    gp.GP_CAPTURE_IMAGE, self._context
-                )
-                camera_path = f"{file_path.folder}/{file_path.name}"
-                logger.info("Captured: %s", camera_path)
-
-                if download_path:
-                    local_file = os.path.join(download_path, file_path.name)
-                    camera_file = gp.CameraFile()
-                    self._camera.file_get(
-                        file_path.folder, file_path.name,
-                        gp.GP_FILE_TYPE_NORMAL, camera_file, self._context
+            for attempt in range(2):
+                try:
+                    file_path = self._camera.capture(
+                        gp.GP_CAPTURE_IMAGE, self._context
                     )
-                    camera_file.save(local_file)
-                    logger.info("Downloaded to: %s", local_file)
-                    return local_file
+                    camera_path = f"{file_path.folder}/{file_path.name}"
+                    logger.info("Captured: %s", camera_path)
 
-                return camera_path
-            except gp.GPhoto2Error as e:
-                logger.error("Capture failed: %s", e)
-                raise
+                    if download_path:
+                        local_file = os.path.join(download_path, file_path.name)
+                        camera_file = gp.CameraFile()
+                        self._camera.file_get(
+                            file_path.folder, file_path.name,
+                            gp.GP_FILE_TYPE_NORMAL, camera_file, self._context
+                        )
+                        camera_file.save(local_file)
+                        logger.info("Downloaded to: %s", local_file)
+                        return local_file
+
+                    return camera_path
+                except gp.GPhoto2Error as e:
+                    error_code = e.code if hasattr(e, 'code') else 0
+                    logger.error("Capture failed (attempt %d): %s", attempt + 1, e)
+                    # I/O error (-7): try recovery before giving up
+                    if error_code == -7 and attempt == 0:
+                        time.sleep(1)
+                        if self._try_recover_io():
+                            continue
+                    raise
 
     # ─── Manual Focus Drive ───────────────────────────────────────
+
+    def press_shutter(self):
+        """Press the shutter button (start continuous capture in burst mode)."""
+        with self._lock:
+            if not self._connected:
+                return
+            try:
+                widget = self._camera.get_single_config("capture", self._context)
+                widget.set_value(2)
+                self._camera.set_single_config("capture", widget, self._context)
+                logger.info("Shutter pressed")
+            except gp.GPhoto2Error as e:
+                logger.error("Shutter press failed: %s", e)
+                raise
+
+    def release_shutter(self):
+        """Release the shutter button (stop continuous capture)."""
+        with self._lock:
+            if not self._connected:
+                return
+            try:
+                widget = self._camera.get_single_config("capture", self._context)
+                widget.set_value(1)
+                self._camera.set_single_config("capture", widget, self._context)
+                logger.info("Shutter released")
+            except gp.GPhoto2Error as e:
+                logger.warning("Shutter release failed: %s", e)
 
     def move_focus(self, value: float):
         """

@@ -233,14 +233,45 @@ class App(tk.Tk):
         self._lbl_points = ttk.Label(bracket_frame, text="A: — | B: — | Distance: —")
         self._lbl_points.pack(padx=5)
 
-        photos_row = ttk.Frame(bracket_frame)
-        photos_row.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(photos_row, text="Num photos:").pack(side=tk.LEFT, padx=5)
+        # Mode selector
+        mode_frame = ttk.Frame(bracket_frame)
+        mode_frame.pack(fill=tk.X, padx=5, pady=(5, 2))
+        ttk.Label(mode_frame, text="Mode:").pack(side=tk.LEFT, padx=(0, 5))
+        self._bracket_mode_var = tk.StringVar(value="step")
+        for text, val in [("Step-by-step", "step"),
+                          ("Sweep (single)", "sweep_single"),
+                          ("Sweep (burst)", "sweep_burst")]:
+            ttk.Radiobutton(
+                mode_frame, text=text, variable=self._bracket_mode_var,
+                value=val, command=self._on_bracket_mode_changed
+            ).pack(side=tk.LEFT, padx=3)
+
+        # Container for mode-specific options (keeps pack order stable)
+        self._mode_options_container = ttk.Frame(bracket_frame)
+        self._mode_options_container.pack(fill=tk.X, padx=0, pady=0)
+
+        # Step-by-step options
+        self._step_options_frame = ttk.Frame(self._mode_options_container)
+        self._step_options_frame.pack(fill=tk.X, padx=5, pady=2)
+        ttk.Label(self._step_options_frame, text="Num photos:").pack(side=tk.LEFT, padx=5)
         self._num_photos_var = tk.IntVar(value=10)
         self._spin_photos = ttk.Spinbox(
-            photos_row, from_=2, to=200, textvariable=self._num_photos_var, width=6
+            self._step_options_frame, from_=2, to=200,
+            textvariable=self._num_photos_var, width=6
         )
         self._spin_photos.pack(side=tk.LEFT, padx=5)
+
+        # Sweep options (shared by sweep_single and sweep_burst)
+        self._sweep_options_frame = ttk.Frame(self._mode_options_container)
+        # NOT packed yet — hidden by default
+        ttk.Label(self._sweep_options_frame, text="Sweep step (1-7):").pack(
+            side=tk.LEFT, padx=5)
+        self._sweep_step_var = tk.DoubleVar(value=1.0)
+        self._spin_sweep_step = ttk.Spinbox(
+            self._sweep_options_frame, from_=1, to=7, increment=1,
+            textvariable=self._sweep_step_var, width=4
+        )
+        self._spin_sweep_step.pack(side=tk.LEFT, padx=5)
 
         # Download options
         dl_frame = ttk.Frame(bracket_frame)
@@ -659,6 +690,17 @@ class App(tk.Tk):
             self._download_path = path
             self._lbl_dl_path.config(text=path)
 
+    def _on_bracket_mode_changed(self):
+        mode = self._bracket_mode_var.get()
+        if mode == "step":
+            self._sweep_options_frame.pack_forget()
+            self._step_options_frame.pack(fill=tk.X, padx=5, pady=2,
+                                          in_=self._mode_options_container)
+        else:
+            self._step_options_frame.pack_forget()
+            self._sweep_options_frame.pack(fill=tk.X, padx=5, pady=2,
+                                           in_=self._mode_options_container)
+
     def _on_start_bracket(self):
         if self._bracket.point_a is None or self._bracket.point_b is None:
             messagebox.showwarning("Focus Bracket", "Set both Point A and Point B first.")
@@ -673,23 +715,39 @@ class App(tk.Tk):
             )
             return
 
-        num_photos = self._num_photos_var.get()
+        mode = self._bracket_mode_var.get()
         dl_path = None
         if self._download_var.get():
             dl_path = self._download_path
             os.makedirs(dl_path, exist_ok=True)
 
         self._bracket_progress["value"] = 0
-        self._bracket_progress["maximum"] = num_photos
         self._btn_start_bracket.config(state=tk.DISABLED)
         self._btn_stop_bracket.config(state=tk.NORMAL)
 
         try:
-            self._bracket.start(num_photos, dl_path)
+            if mode == "step":
+                num_photos = self._num_photos_var.get()
+                self._bracket_progress["maximum"] = num_photos
+                self._bracket.start(num_photos, dl_path)
+            elif mode == "sweep_single":
+                step = self._sweep_step_var.get()
+                self._bracket_progress["mode"] = "indeterminate"
+                self._bracket_progress.start()
+                self._bracket.start_sweep_single(step_size=step,
+                                                download_path=dl_path)
+            elif mode == "sweep_burst":
+                step = self._sweep_step_var.get()
+                self._bracket_progress["mode"] = "indeterminate"
+                self._bracket_progress.start()
+                self._bracket.start_sweep_burst(step_size=step,
+                                               download_path=dl_path)
         except Exception as e:
             messagebox.showerror("Focus Bracket", str(e))
             self._btn_start_bracket.config(state=tk.NORMAL)
             self._btn_stop_bracket.config(state=tk.DISABLED)
+            self._bracket_progress.stop()
+            self._bracket_progress["mode"] = "determinate"
 
     def _on_stop_bracket(self):
         self._bracket.stop()
@@ -737,6 +795,8 @@ class App(tk.Tk):
         self._lbl_bracket_status.config(text=message)
 
     def _bracket_finished(self, message: str):
+        self._bracket_progress.stop()
+        self._bracket_progress["mode"] = "determinate"
         self._lbl_bracket_status.config(text=message)
         self._btn_start_bracket.config(state=tk.NORMAL)
         self._btn_stop_bracket.config(state=tk.DISABLED)
