@@ -226,7 +226,8 @@ class CameraController:
             if not self._connected:
                 return None
             try:
-                camera_file = self._camera.capture_preview(self._context)
+                camera_file = gp.CameraFile()
+                self._camera.capture_preview(camera_file, self._context)
                 file_data = camera_file.get_data_and_size()
                 return bytes(file_data)
             except gp.GPhoto2Error as e:
