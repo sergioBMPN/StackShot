@@ -50,6 +50,7 @@ class App(tk.Tk):
         # Live view state
         self._liveview_running = False
         self._liveview_image: Optional[ImageTk.PhotoImage] = None
+        self._focus_poll_running = False
 
         # Download path
         self._download_path = os.path.expanduser("~/Pictures/SonyBracket")
@@ -191,6 +192,19 @@ class App(tk.Tk):
         self._lbl_focus_pos = ttk.Label(focus_frame, text="Position: 0")
         self._lbl_focus_pos.grid(row=2, column=0, columnspan=3, pady=2)
 
+        # Focus slider — joystick style: drag to set magnitude, release to move
+        ttk.Label(focus_frame, text="Focus Slider (Near ↔ Far):").grid(
+            row=3, column=0, columnspan=3, padx=5, pady=(8, 0), sticky=tk.W
+        )
+        self._focus_slider_var = tk.DoubleVar(value=0.0)
+        self._focus_slider = tk.Scale(
+            focus_frame, from_=-7.0, to=7.0, resolution=1.0,
+            orient=tk.HORIZONTAL, variable=self._focus_slider_var,
+            label="", showvalue=True, length=200,
+        )
+        self._focus_slider.grid(row=4, column=0, columnspan=3, padx=5, pady=2, sticky="ew")
+        self._focus_slider.bind("<ButtonRelease-1>", self._on_focus_slider_release)
+
         # ── Focus Bracket ──
         bracket_frame = ttk.LabelFrame(parent, text="Focus Bracket")
         bracket_frame.pack(fill=tk.X, padx=5, pady=5)
@@ -303,6 +317,7 @@ class App(tk.Tk):
         self._btn_capture.config(state=tk.DISABLED)
         self._btn_near.config(state=tk.DISABLED)
         self._btn_far.config(state=tk.DISABLED)
+        self._focus_slider.config(state=tk.DISABLED)
         self._btn_set_a.config(state=tk.DISABLED)
         self._btn_set_b.config(state=tk.DISABLED)
         self._btn_start_bracket.config(state=tk.DISABLED)
@@ -315,6 +330,7 @@ class App(tk.Tk):
         self._btn_capture.config(state=tk.NORMAL)
         self._btn_near.config(state=tk.NORMAL)
         self._btn_far.config(state=tk.NORMAL)
+        self._focus_slider.config(state=tk.NORMAL)
         self._btn_set_a.config(state=tk.NORMAL)
         self._btn_set_b.config(state=tk.NORMAL)
         self._btn_start_bracket.config(state=tk.NORMAL)
@@ -344,6 +360,7 @@ class App(tk.Tk):
         self._set_ui_state_connected()
         self._refresh_params()
         self._start_liveview()
+        self._start_focus_poll()
 
     def _connect_fail(self, error: str):
         self._lbl_status.config(text="Connection failed", foreground="red")
@@ -352,6 +369,7 @@ class App(tk.Tk):
 
     def _on_disconnect(self):
         self._stop_liveview()
+        self._focus_poll_running = False
         self._bracket.reset()
         self._controller.disconnect()
         self._lbl_status.config(text="Disconnected", foreground="red")
@@ -399,6 +417,39 @@ class App(tk.Tk):
             self._lv_label.config(image=self._liveview_image)
         except Exception as e:
             logger.debug("Frame decode error: %s", e)
+
+    # ══════════════════════════════════════════════════════════════
+    # FOCUS POSITION POLLING
+    # ══════════════════════════════════════════════════════════════
+
+    def _start_focus_poll(self):
+        self._focus_poll_running = True
+        self._poll_focus_position()
+
+    def _poll_focus_position(self):
+        """Periodically read the camera's manualfocus value and update the display."""
+        if not self._focus_poll_running:
+            return
+
+        def fetch():
+            try:
+                value = self._controller.get_focus_value()
+                if value is not None and self._focus_poll_running:
+                    self.after(0, self._update_focus_value_display, value)
+            except Exception as e:
+                logger.debug("Focus poll error: %s", e)
+            finally:
+                if self._focus_poll_running:
+                    self.after(500, self._poll_focus_position)
+
+        threading.Thread(target=fetch, daemon=True).start()
+
+    def _update_focus_value_display(self, value: float):
+        """Update focus display with the polled camera value."""
+        pos_text = f"Position: {self._bracket._current_position}"
+        if value != 0.0:
+            pos_text += f"  (last cmd: {value:+.0f})"
+        self._lbl_focus_pos.config(text=pos_text)
 
     # ══════════════════════════════════════════════════════════════
     # CAMERA PARAMETERS
@@ -489,6 +540,32 @@ class App(tk.Tk):
         def do_move():
             try:
                 self._bracket.move_focus_far()
+                self.after(0, self._update_focus_display)
+            except Exception as e:
+                self.after(0, messagebox.showerror, "Focus Error", str(e))
+
+        threading.Thread(target=do_move, daemon=True).start()
+
+    def _on_focus_slider_release(self, event=None):
+        """Send the slider value as a manualfocus command, then snap back to 0."""
+        value = self._focus_slider_var.get()
+        if value == 0.0:
+            return
+        # Snap slider back to center immediately
+        self._focus_slider_var.set(0.0)
+
+        # Track position: negative = near, positive = far
+        direction = "near" if value < 0 else "far"
+        step_magnitude = abs(value)
+        # Update FocusBracket's internal position tracker
+        if direction == "near":
+            self._bracket._current_position -= 1
+        else:
+            self._bracket._current_position += 1
+
+        def do_move():
+            try:
+                self._controller.move_focus(value)
                 self.after(0, self._update_focus_display)
             except Exception as e:
                 self.after(0, messagebox.showerror, "Focus Error", str(e))
@@ -594,6 +671,7 @@ class App(tk.Tk):
 
     def _on_close(self):
         self._stop_liveview()
+        self._focus_poll_running = False
         if self._bracket.is_running:
             self._bracket.stop()
         if self._controller.connected:

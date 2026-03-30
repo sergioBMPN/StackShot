@@ -192,25 +192,44 @@ class FocusBracket:
                     self._notify_progress(photos_taken, num_photos, "Cancelled")
                     return
 
-                # Small settle delay after focus move
-                time.sleep(0.2)
+                # Settle delay after focus move (lens needs time)
+                time.sleep(1.0)
 
-                # Capture
+                # Capture with retry logic
                 self._notify_progress(
                     photos_taken, num_photos,
                     f"Capturing {i + 1}/{num_photos}..."
                 )
-                try:
-                    self._controller.capture_image(download_path)
-                    photos_taken += 1
-                except Exception as e:
-                    logger.error("Capture failed at step %d: %s", i, e)
-                    if self.on_error:
-                        self.on_error(f"Capture failed at photo {i + 1}: {e}")
+                captured = False
+                for attempt in range(3):
+                    if self._stop_event.is_set():
+                        break
+                    try:
+                        self._controller.capture_image(download_path)
+                        captured = True
+                        photos_taken += 1
+                        break
+                    except Exception as e:
+                        logger.warning("Capture attempt %d failed at step %d: %s",
+                                       attempt + 1, i, e)
+                        if attempt < 2:
+                            wait = 2.0 * (attempt + 1)
+                            self._notify_progress(
+                                photos_taken, num_photos,
+                                f"Retry {attempt + 2}/3 for photo {i + 1} (waiting {wait:.0f}s)..."
+                            )
+                            time.sleep(wait)
+                        else:
+                            logger.error("Capture failed after 3 attempts at step %d", i)
+                            if self.on_error:
+                                self.on_error(f"Capture failed at photo {i + 1} after 3 attempts: {e}")
+                            return
+
+                if not captured:
                     return
 
-                # Wait for camera to be ready
-                time.sleep(0.3)
+                # Wait for camera to write image and be ready
+                time.sleep(2.0)
 
             self._notify_progress(photos_taken, num_photos, "Complete!")
             if self.on_complete:

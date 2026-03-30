@@ -309,6 +309,23 @@ class CameraController:
 
     # ─── Utility ──────────────────────────────────────────────────
 
+    def get_focus_value(self) -> Optional[float]:
+        """
+        Read the current manualfocus widget value.
+        Note: On Sony cameras this is the last command sent, not an absolute position.
+        Returns None if unavailable.
+        """
+        with self._lock:
+            if not self._connected:
+                return None
+            try:
+                config = self._camera.get_config(self._context)
+                widget = config.get_child_by_name(self.FOCUS_WIDGET)
+                return float(widget.get_value())
+            except (gp.GPhoto2Error, ValueError) as e:
+                logger.debug("Cannot read focus value: %s", e)
+                return None
+
     def get_all_params(self) -> dict:
         """
         Read current values and available choices for all main parameters.
