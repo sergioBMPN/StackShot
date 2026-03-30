@@ -1,0 +1,263 @@
+Focus Diagnostic Results — 2026-03-30 20:09:33.077053
+============================================================
+
+============================================================
+SONY A7 III FOCUS DIAGNOSTIC
+Date: 2026-03-30 20:09:11.877814
+gphoto2 version: ['2.5.33', 'standard camlibs', 'gcc', 'no ltdl', 'EXIF']
+============================================================
+
+Killing PTPCamera daemon (macOS)...
+
+Connecting to camera...
+Connected: Manufacturer: Sony Corporation
+Model: ILCE-7M3
+  Version: 4.0
+  Serial Number: 000000000000000032850
+
+============================================================
+TEST 1: List ALL config widgets
+============================================================
+
+Total widgets found: 97
+
+--- FOCUS-RELATED WIDGETS ---
+  main/actions/autofocus                             type=TOGGLE  value=2
+  main/actions/manualfocus                           type=RANGE   value=0.0  range=(-7.0, 7.0, 1.0)
+  main/actions/focusmagnifier                        type=TOGGLE  value=2
+  main/actions/focusmagnifierexit                    type=TOGGLE  value=2
+  main/capturesettings/focusmode                     type=RADIO   value=Automatic  choices=['Manual', 'Automatic', 'AF-C', 'AF-A', 'DMF', 'Preset Focus']
+  main/capturesettings/focusarea                     type=RADIO   value=Flexible Spot: S  choices=['Wide', 'Zone', 'Center', 'Flexible Spot: S', 'Flexible Spot: M', 'Flexible Spot: L', 'Expand Flexible Spot']
+
+--- ALL WIDGETS (complete dump) ---
+  main/actions/autofocus                             type=TOGGLE  value=2
+  main/actions/manualfocus                           type=RANGE   value=0.0  range=(-7.0, 7.0, 1.0)
+  main/actions/capture                               type=TOGGLE  value=2
+  main/actions/bulb                                  type=TOGGLE  value=2
+  main/actions/movie                                 type=TOGGLE  value=2
+  main/actions/focusmagnifier                        type=TOGGLE  value=2
+  main/actions/focusmagnifierexit                    type=TOGGLE  value=2
+  main/actions/remotekeyup                           type=TOGGLE  value=2
+  main/actions/remotekeydown                         type=TOGGLE  value=2
+  main/actions/remotekeyleft                         type=TOGGLE  value=2
+  main/actions/remotekeyright                        type=TOGGLE  value=2
+  main/actions/opcode                                type=TEXT    value=0x1001,0xparam1,0xparam2
+  main/settings/capturetarget                        type=RADIO   value=card+sdram
+  main/status/serialnumber                           type=TEXT    value=00000000000000003285053106623087  [READONLY]
+  main/status/manufacturer                           type=TEXT    value=Sony Corporation  [READONLY]
+  main/status/cameramodel                            type=TEXT    value=ILCE-7M3  [READONLY]
+  main/status/deviceversion                          type=TEXT    value=4.0  [READONLY]
+  main/status/vendorextension                        type=TEXT    value=Sony PTP Extensions  [READONLY]
+  main/status/batterylevel                           type=TEXT    value=62%  [READONLY]
+  main/imgsettings/imagesize                         type=RADIO   value=Large
+  main/imgsettings/iso                               type=RADIO   value=5000
+  main/imgsettings/colortemperature                  type=RANGE   value=5500.0  range=(2500.0, 9900.0, 100.0)  [READONLY]
+  main/imgsettings/whitebalance                      type=RADIO   value=Preset 1
+  main/capturesettings/zoom                          type=RANGE   value=34.20774459838867  range=(0.0, 4294.96728515625, 1.0)
+  main/capturesettings/exposurecompensation          type=RADIO   value=0  [READONLY]
+  main/capturesettings/flashmode                     type=RADIO   value=Fill flash
+  main/capturesettings/f-number                      type=RADIO   value=f/4
+  main/capturesettings/imagequality                  type=RADIO   value=RAW
+  main/capturesettings/focusmode                     type=RADIO   value=Automatic
+  main/capturesettings/expprogram                    type=RADIO   value=M  [READONLY]
+  main/capturesettings/aspectratio                   type=RADIO   value=3:2
+  main/capturesettings/capturemode                   type=RADIO   value=Continuous Hi+ Speed
+  main/capturesettings/exposuremetermode             type=RADIO   value=Spot Large
+  main/capturesettings/shutterspeed                  type=RADIO   value=1/100
+  main/capturesettings/liveviewsettingeffect         type=RADIO   value=On
+  main/capturesettings/focusarea                     type=RADIO   value=Flexible Spot: S
+  main/capturesettings/sensorcrop                    type=RADIO   value=Off  [READONLY]
+  main/other/5004                                    type=MENU    value=16
+  main/other/5005                                    type=MENU    value=32800
+  main/other/5007                                    type=RANGE   value=400.0  range=(0.0, 65535.0, 1.0)
+  main/other/500a                                    type=MENU    value=2
+  main/other/500b                                    type=MENU    value=32773
+  main/other/500c                                    type=MENU    value=3
+  main/other/500e                                    type=MENU    value=1  [READONLY]
+  main/other/5010                                    type=MENU    value=0  [READONLY]
+  main/other/5013                                    type=MENU    value=32784
+  main/other/d200                                    type=MENU    value=0
+  main/other/d201                                    type=MENU    value=1  [READONLY]
+  main/other/d203                                    type=MENU    value=1
+  main/other/d20d                                    type=RANGE   value=65636.0  range=(0.0, 4294967296.0, 1.0)
+  main/other/d20e                                    type=MENU    value=14  [READONLY]
+  main/other/d20f                                    type=RANGE   value=5500.0  range=(2500.0, 9900.0, 100.0)  [READONLY]
+  main/other/d211                                    type=MENU    value=1
+  main/other/d213                                    type=MENU    value=1  [READONLY]
+  main/other/d21e                                    type=MENU    value=5000
+  main/other/d21b                                    type=MENU    value=32768  [READONLY]
+  main/other/d21d                                    type=MENU    value=0  [READONLY]
+  main/other/d21f                                    type=MENU    value=1
+  main/other/d217                                    type=MENU    value=1
+  main/other/d218                                    type=MENU    value=62  [READONLY]
+  main/other/d219                                    type=MENU    value=1  [READONLY]
+  main/other/d212                                    type=MENU    value=0
+  main/other/d210                                    type=MENU    value=173
+  main/other/d21c                                    type=RANGE   value=164.0  range=(164.0, 220.0, 2.0)
+  main/other/d222                                    type=MENU    value=17
+  main/other/d22c                                    type=MENU    value=257
+  main/other/d22d                                    type=MENU    value=0  [READONLY]
+  main/other/d22e                                    type=MENU    value=59  [READONLY]
+  main/other/d22f                                    type=MENU    value=0  [READONLY]
+  main/other/d230                                    type=MENU    value=20971734  [READONLY]
+  main/other/d231                                    type=MENU    value=1
+  main/other/d232                                    type=MENU    value=20971734
+  main/other/d233                                    type=MENU    value=1
+  main/other/d235                                    type=MENU    value=0  [READONLY]
+  main/other/d236                                    type=MENU    value=1
+  main/other/d24f                                    type=MENU    value=1
+  main/other/d250                                    type=MENU    value=0  [READONLY]
+  main/other/d221                                    type=MENU    value=1
+  main/other/d214                                    type=RANGE   value=34207744.0  range=(0.0, 4294967296.0, 1.0)
+  main/other/d215                                    type=RANGE   value=0.0  range=(0.0, 65535.0, 1.0)
+  main/other/d2c1                                    type=MENU    value=1
+  main/other/d2c2                                    type=MENU    value=1
+  main/other/d2c3                                    type=MENU    value=1
+  main/other/d2c9                                    type=MENU    value=1
+  main/other/d2c8                                    type=MENU    value=1
+  main/other/d2c5                                    type=MENU    value=1
+  main/other/d2c7                                    type=MENU    value=1
+  main/other/d2cb                                    type=MENU    value=1
+  main/other/d2cc                                    type=MENU    value=1
+  main/other/d2cd                                    type=MENU    value=1
+  main/other/d2ce                                    type=MENU    value=1
+  main/other/d2cf                                    type=MENU    value=1
+  main/other/d2d0                                    type=MENU    value=1
+  main/other/d2d2                                    type=MENU    value=1
+  main/other/d2d3                                    type=MENU    value=1
+  main/other/d2d4                                    type=MENU    value=1
+  main/other/d2d1                                    type=MENU    value=0
+
+============================================================
+TEST 2: get_single_config for known focus widget names
+============================================================
+  ✓ manualfocus                    type=3  value=0.0
+    range: [-7.0, 7.0] step=1.0
+  ✗ focalposition                  — [-2] Bad parameters
+  ✓ autofocus                      type=4  value=2
+  ✓ focusmode                      type=5  value=Automatic
+  ✓ focusarea                      type=5  value=Flexible Spot: S
+  ✓ focusmagnifier                 type=4  value=2
+  ✓ focusmagnifierexit             type=4  value=2
+  ✗ focusmagnifiersetting          — [-2] Bad parameters
+  ✗ spotfocusarea                  — [-2] Bad parameters
+  ✗ manualfocusdrive               — [-2] Bad parameters
+  ✗ nearfocus                      — [-2] Bad parameters
+  ✗ farfocus                       — [-2] Bad parameters
+
+============================================================
+TEST 3: Focus mode settings
+============================================================
+  focusmode: current = Automatic
+    available: ['Manual', 'Automatic', 'AF-C', 'AF-A', 'DMF', 'Preset Focus']
+  focusarea: current = Flexible Spot: S
+    available: ['Wide', 'Zone', 'Center', 'Flexible Spot: S', 'Flexible Spot: M', 'Flexible Spot: L', 'Expand Flexible Spot']
+
+============================================================
+TEST 4: manualfocus widget read/write test
+============================================================
+
+  a) get_single_config('manualfocus'):
+     value=0.0  type=RANGE
+     range=[-7.0, 7.0] step=1.0
+     readonly=0
+
+  b) get_config → get_child_by_name('manualfocus'):
+     value=0.0
+
+  c) set_single_config('manualfocus', 0.0) [no-op]:
+     OK — no error
+
+  d) set_config (full tree, manualfocus=0.0):
+     OK — no error
+
+============================================================
+TEST 9: MF enable status and related flags
+============================================================
+
+############################################################
+# MOVEMENT TESTS — watch the lens!
+############################################################
+
+============================================================
+TEST 5: ACTUAL FOCUS MOVEMENT — watch the lens!
+============================================================
+
+  Initial focalposition: None (via none)
+
+  >>> manualfocus = -1.0 (small near)
+      set_single_config: OK
+      focalposition after: None
+
+  >>> manualfocus = -3.0 (medium near)
+      set_single_config: OK
+      focalposition after: None
+
+  >>> manualfocus = -7.0 (large near)
+      set_single_config: OK
+      focalposition after: None
+
+  >>> manualfocus = 1.0 (small far)
+      set_single_config: OK
+      focalposition after: None
+
+  >>> manualfocus = 3.0 (medium far)
+      set_single_config: OK
+      focalposition after: None
+
+  >>> manualfocus = 7.0 (large far)
+      set_single_config: OK
+      focalposition after: None
+
+============================================================
+TEST 6: Autofocus trigger
+============================================================
+  Current focusmode: Automatic
+
+  Triggering autofocus (autofocus=2)...
+  autofocus current value: 2
+  ✓ autofocus=2 sent
+  autofocus=1 (release) sent
+
+============================================================
+TEST 7: Focus mode change test
+============================================================
+  Current focusmode: Automatic
+  Available modes: ['Manual', 'Automatic', 'AF-C', 'AF-A', 'DMF', 'Preset Focus']
+
+  Trying focusmode = 'DMF'...
+  ? focusmode now: 'Automatic'
+
+  Trying focusmode = 'Manual'...
+  ? focusmode now: 'Automatic'
+
+  Trying focusmode = 'AF-C'...
+  ? focusmode now: 'Automatic'
+
+  Restoring focusmode = 'Automatic'...
+  ✓ Restored
+
+============================================================
+TEST 8: DMF mode + manual focus (electronic MF)
+============================================================
+  Current: Automatic, Available: ['Manual', 'Automatic', 'AF-C', 'AF-A', 'DMF', 'Preset Focus']
+  focusmode now: Automatic
+  focalposition before: None
+
+  manualfocus=-3.0 (near) in DMF mode...
+  Command sent OK
+  focalposition after: None
+
+  manualfocus=3.0 (far) in DMF mode...
+  Command sent OK
+  focalposition after: None
+
+  Restored focusmode = 'Automatic'
+
+============================================================
+SUMMARY
+============================================================
+  manualfocus widget:   FOUND
+  focalposition widget: NOT FOUND
+
+Camera disconnected.

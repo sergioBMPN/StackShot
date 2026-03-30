@@ -182,9 +182,21 @@ class App(tk.Tk):
         )
         self._lbl_focus_pos.grid(row=0, column=0, columnspan=3, padx=5, pady=2)
 
+        # Step size control
+        step_row = ttk.Frame(focus_frame)
+        step_row.grid(row=1, column=0, columnspan=3, padx=5, pady=(2, 0), sticky=tk.EW)
+        ttk.Label(step_row, text="Step:").pack(side=tk.LEFT)
+        self._focus_step_var = tk.DoubleVar(value=1.0)
+        self._scale_focus_step = tk.Scale(
+            step_row, from_=1, to=7, orient=tk.HORIZONTAL,
+            variable=self._focus_step_var, resolution=1,
+            showvalue=True, length=140,
+        )
+        self._scale_focus_step.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
         # Near / Far nudge buttons
         btn_row = ttk.Frame(focus_frame)
-        btn_row.grid(row=1, column=0, columnspan=3, pady=5)
+        btn_row.grid(row=2, column=0, columnspan=3, pady=5)
         self._btn_near = ttk.Button(btn_row, text="◀ Near", command=self._on_focus_near)
         self._btn_near.pack(side=tk.LEFT, padx=5)
         self._btn_far = ttk.Button(btn_row, text="Far ▶", command=self._on_focus_far)
@@ -192,10 +204,10 @@ class App(tk.Tk):
 
         # Target position: spinbox (0-100) + Go button
         ttk.Label(focus_frame, text="Target (0-100):").grid(
-            row=2, column=0, padx=5, pady=(8, 2), sticky=tk.W
+            row=3, column=0, padx=5, pady=(8, 2), sticky=tk.W
         )
         focus_target_row = ttk.Frame(focus_frame)
-        focus_target_row.grid(row=2, column=1, columnspan=2, padx=5, pady=(8, 2), sticky=tk.W)
+        focus_target_row.grid(row=3, column=1, columnspan=2, padx=5, pady=(8, 2), sticky=tk.W)
         self._focus_target_var = tk.IntVar(value=50)
         self._spin_focus_target = ttk.Spinbox(
             focus_target_row, from_=0, to=100, increment=1,
@@ -550,9 +562,12 @@ class App(tk.Tk):
     # ══════════════════════════════════════════════════════════════
 
     def _on_focus_near(self):
+        step = self._focus_step_var.get()
+
         def do_move():
             try:
-                self._bracket.move_focus_near()
+                self._controller.move_focus(-step)
+                import time; time.sleep(0.3)
                 pos = self._controller.get_focal_position()
                 if pos is not None:
                     self.after(0, self._update_focus_value_display, pos)
@@ -562,9 +577,12 @@ class App(tk.Tk):
         threading.Thread(target=do_move, daemon=True).start()
 
     def _on_focus_far(self):
+        step = self._focus_step_var.get()
+
         def do_move():
             try:
-                self._bracket.move_focus_far()
+                self._controller.move_focus(step)
+                import time; time.sleep(0.3)
                 pos = self._controller.get_focal_position()
                 if pos is not None:
                     self.after(0, self._update_focus_value_display, pos)
