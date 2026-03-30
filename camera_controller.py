@@ -252,10 +252,11 @@ class CameraController:
                 logger.info("Captured: %s", camera_path)
 
                 if download_path:
-                    local_file = f"{download_path}/{file_path.name}"
-                    camera_file = self._camera.file_get(
+                    local_file = os.path.join(download_path, file_path.name)
+                    camera_file = gp.CameraFile()
+                    self._camera.file_get(
                         file_path.folder, file_path.name,
-                        gp.GP_FILE_TYPE_NORMAL, self._context
+                        gp.GP_FILE_TYPE_NORMAL, camera_file, self._context
                     )
                     camera_file.save(local_file)
                     logger.info("Downloaded to: %s", local_file)

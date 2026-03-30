@@ -374,11 +374,16 @@ class App(tk.Tk):
             return
 
         def fetch():
-            data = self._controller.capture_preview_bytes()
-            if data and self._liveview_running:
-                self.after(0, self._display_frame, data)
-            if self._liveview_running:
-                self.after(LIVEVIEW_INTERVAL_MS, self._poll_liveview)
+            try:
+                data = self._controller.capture_preview_bytes()
+                if data and self._liveview_running:
+                    self.after(0, self._display_frame, data)
+            except Exception as e:
+                logger.debug("Liveview fetch error: %s", e)
+            finally:
+                # Always schedule the next poll, even if this one failed
+                if self._liveview_running:
+                    self.after(LIVEVIEW_INTERVAL_MS, self._poll_liveview)
 
         threading.Thread(target=fetch, daemon=True).start()
 
