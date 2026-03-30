@@ -6,6 +6,9 @@ Provides: connection, config read/write, live view, capture, manual focus drive.
 
 import io
 import logging
+import os
+import platform
+import subprocess
 import threading
 from typing import Optional
 
@@ -46,11 +49,45 @@ class CameraController:
 
     # ─── Connection ───────────────────────────────────────────────
 
+    @staticmethod
+    def _kill_macos_ptp_daemon():
+        """Kill macOS PTPCamera daemon that grabs USB cameras before gphoto2."""
+        if platform.system() != "Darwin":
+            return
+        for proc_name in ("PTPCamera", "ptpd"):
+            try:
+                subprocess.run(
+                    ["killall", proc_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+                logger.info("Killed %s daemon", proc_name)
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+    @staticmethod
+    def list_cameras() -> list[tuple[str, str]]:
+        """Return list of (model, port) for all detected cameras."""
+        camera_list = gp.Camera.autodetect()
+        result = [(name, port) for name, port in camera_list]
+        return result
+
     def connect(self) -> str:
         """Detect and connect to the camera. Returns camera summary text."""
         with self._lock:
             if self._connected:
                 return "Already connected"
+
+            # On macOS, kill PTPCamera daemon that steals USB cameras
+            self._kill_macos_ptp_daemon()
+
+            # Log all detected cameras
+            try:
+                cameras = self.list_cameras()
+                logger.info("Detected cameras: %s", cameras if cameras else "(none)")
+            except gp.GPhoto2Error as e:
+                logger.warning("Auto-detect failed: %s", e)
 
             self._context = gp.Context()
             self._camera = gp.Camera()
@@ -59,7 +96,7 @@ class CameraController:
 
             summary = self._camera.get_summary(self._context)
             model = str(summary)
-            logger.info("Connected to camera: %s", model[:80])
+            logger.info("Connected to camera: %s", model[:120])
             return model
 
     def disconnect(self):
