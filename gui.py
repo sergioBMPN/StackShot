@@ -7,6 +7,7 @@ Live view, parameter adjustment, and focus bracketing interface.
 import io
 import logging
 import os
+import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -28,11 +29,16 @@ class App(tk.Tk):
 
     def __init__(self):
         super().__init__()
+        logger.debug("=== App.__init__ START ===")
+        logger.debug("Tk version: %s", self.tk.call("info", "patchlevel"))
+        logger.debug("Python: %s", sys.version)
+        logger.debug("Platform: %s", sys.platform)
 
         self.title("Sony A7 III — Remote Control")
         self.geometry("1200x750")
         self.minsize(900, 600)
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+        logger.debug("Window geometry set to 1200x750, minsize 900x600")
 
         # Core objects
         self._controller = CameraController()
@@ -53,42 +59,61 @@ class App(tk.Tk):
 
         # Force geometry computation — fixes blank window on macOS
         self.update_idletasks()
+        logger.debug("After update_idletasks — window size: %sx%s",
+                     self.winfo_width(), self.winfo_height())
+        logger.debug("Window mapped: %s, viewable: %s",
+                     self.winfo_ismapped(), self.winfo_viewable())
+        # Schedule a delayed size check after the window is displayed
+        self.after(500, self._debug_sizes)
 
     # ══════════════════════════════════════════════════════════════
     # UI CONSTRUCTION
     # ══════════════════════════════════════════════════════════════
 
     def _build_ui(self):
+        logger.debug("=== _build_ui START ===")
+
         # Main layout: grid with 2 columns (live view | controls)
         self.columnconfigure(0, weight=3)
         self.columnconfigure(1, weight=1)
         self.rowconfigure(0, weight=1)
+        logger.debug("Grid configured: col0 weight=3, col1 weight=1, row0 weight=1")
 
         # ── Left: Live View ──
         lv_frame = ttk.LabelFrame(self, text="Live View")
         lv_frame.grid(row=0, column=0, sticky="nsew", padx=(5, 2), pady=5)
+        logger.debug("lv_frame gridded at (0,0)")
 
         self._lv_label = ttk.Label(lv_frame, anchor=tk.CENTER)
         self._lv_label.pack(fill=tk.BOTH, expand=True)
+        logger.debug("lv_label packed")
 
         # ── Right: Controls (scrollable) ──
         ctrl_frame = ttk.Frame(self)
         ctrl_frame.grid(row=0, column=1, sticky="nsew", padx=(2, 5), pady=5)
         ctrl_frame.rowconfigure(0, weight=1)
         ctrl_frame.columnconfigure(0, weight=1)
+        logger.debug("ctrl_frame gridded at (0,1)")
 
-        self._ctrl_canvas = tk.Canvas(ctrl_frame, highlightthickness=0)
+        self._ctrl_canvas = tk.Canvas(ctrl_frame, highlightthickness=0, bg="#f0f0f0")
         scrollbar = ttk.Scrollbar(ctrl_frame, orient=tk.VERTICAL, command=self._ctrl_canvas.yview)
         self._scroll_frame = ttk.Frame(self._ctrl_canvas)
 
         self._scroll_frame.bind(
             "<Configure>",
-            lambda e: self._ctrl_canvas.configure(scrollregion=self._ctrl_canvas.bbox("all"))
+            lambda e: (
+                self._ctrl_canvas.configure(scrollregion=self._ctrl_canvas.bbox("all")),
+                logger.debug("scroll_frame <Configure>: w=%s h=%s, bbox=%s",
+                             e.width, e.height, self._ctrl_canvas.bbox("all"))
+            )
         )
         # Propagate canvas width to inner frame so widgets fill horizontally
         self._ctrl_canvas.bind(
             "<Configure>",
-            lambda e: self._ctrl_canvas.itemconfigure(self._canvas_window_id, width=e.width)
+            lambda e: (
+                self._ctrl_canvas.itemconfigure(self._canvas_window_id, width=e.width),
+                logger.debug("ctrl_canvas <Configure>: w=%s h=%s", e.width, e.height)
+            )
         )
         self._canvas_window_id = self._ctrl_canvas.create_window(
             (0, 0), window=self._scroll_frame, anchor=tk.NW
@@ -96,12 +121,14 @@ class App(tk.Tk):
         self._ctrl_canvas.configure(yscrollcommand=scrollbar.set)
         self._ctrl_canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
+        logger.debug("Canvas and scrollbar gridded inside ctrl_frame")
 
         parent = self._scroll_frame
 
         # ── Connection ──
         conn_frame = ttk.LabelFrame(parent, text="Connection")
         conn_frame.pack(fill=tk.X, padx=5, pady=5)
+        logger.debug("conn_frame packed")
 
         self._btn_connect = ttk.Button(conn_frame, text="Connect", command=self._on_connect)
         self._btn_connect.pack(side=tk.LEFT, padx=5, pady=5)
@@ -109,6 +136,7 @@ class App(tk.Tk):
         self._btn_disconnect.pack(side=tk.LEFT, padx=5, pady=5)
         self._lbl_status = ttk.Label(conn_frame, text="Disconnected", foreground="red")
         self._lbl_status.pack(side=tk.LEFT, padx=10)
+        logger.debug("Connection widgets created")
 
         # ── Camera Parameters ──
         params_frame = ttk.LabelFrame(parent, text="Camera Settings")
@@ -220,6 +248,50 @@ class App(tk.Tk):
         self._bracket_progress.pack(fill=tk.X, padx=5, pady=2)
         self._lbl_bracket_status = ttk.Label(bracket_frame, text="")
         self._lbl_bracket_status.pack(padx=5, pady=2)
+
+        logger.debug("=== _build_ui END — all widgets created ===")
+
+    # ══════════════════════════════════════════════════════════════
+    # DEBUG HELPERS
+    # ══════════════════════════════════════════════════════════════
+
+    def _debug_sizes(self):
+        """Log all widget sizes 500ms after startup to diagnose blank UI."""
+        logger.debug("=== DELAYED SIZE CHECK (500ms after init) ===")
+        logger.debug("Root window: %sx%s (requested: %sx%s)",
+                     self.winfo_width(), self.winfo_height(),
+                     self.winfo_reqwidth(), self.winfo_reqheight())
+        logger.debug("Root mapped: %s, viewable: %s",
+                     self.winfo_ismapped(), self.winfo_viewable())
+        logger.debug("Root geometry: %s", self.winfo_geometry())
+        # Children of root
+        for child in self.winfo_children():
+            cname = child.winfo_class()
+            logger.debug("  Child %-20s  actual=%sx%s  req=%sx%s  mapped=%s",
+                         cname,
+                         child.winfo_width(), child.winfo_height(),
+                         child.winfo_reqwidth(), child.winfo_reqheight(),
+                         child.winfo_ismapped())
+            # One more level deep
+            for sub in child.winfo_children():
+                sname = sub.winfo_class()
+                logger.debug("    Sub %-18s  actual=%sx%s  req=%sx%s  mapped=%s",
+                             sname,
+                             sub.winfo_width(), sub.winfo_height(),
+                             sub.winfo_reqwidth(), sub.winfo_reqheight(),
+                             sub.winfo_ismapped())
+        # Canvas and scroll_frame specifically
+        logger.debug("ctrl_canvas: actual=%sx%s  req=%sx%s",
+                     self._ctrl_canvas.winfo_width(), self._ctrl_canvas.winfo_height(),
+                     self._ctrl_canvas.winfo_reqwidth(), self._ctrl_canvas.winfo_reqheight())
+        logger.debug("scroll_frame: actual=%sx%s  req=%sx%s  children=%d",
+                     self._scroll_frame.winfo_width(), self._ctrl_canvas.winfo_height(),
+                     self._scroll_frame.winfo_reqwidth(), self._scroll_frame.winfo_reqheight(),
+                     len(self._scroll_frame.winfo_children()))
+        logger.debug("lv_label: actual=%sx%s",
+                     self._lv_label.winfo_width(), self._lv_label.winfo_height())
+        logger.debug("scrollregion: %s", self._ctrl_canvas.cget("scrollregion"))
+        logger.debug("=== END SIZE CHECK ===")
 
     # ══════════════════════════════════════════════════════════════
     # UI STATE
