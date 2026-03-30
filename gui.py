@@ -43,6 +43,7 @@ class App(tk.Tk):
         # Core objects
         self._controller = CameraController()
         self._bracket = FocusBracket(self._controller)
+        self._bracket.on_start = self._on_bracket_start
         self._bracket.on_progress = self._on_bracket_progress
         self._bracket.on_complete = self._on_bracket_complete
         self._bracket.on_error = self._on_bracket_error
@@ -446,7 +447,8 @@ class App(tk.Tk):
 
     def _update_focus_value_display(self, value: float):
         """Update focus display with the polled camera value."""
-        pos_text = f"Position: {self._bracket._current_position}"
+        pos = self._bracket._current_position
+        pos_text = f"Position: {pos:+.1f}"
         if value != 0.0:
             pos_text += f"  (last cmd: {value:+.0f})"
         self._lbl_focus_pos.config(text=pos_text)
@@ -554,18 +556,9 @@ class App(tk.Tk):
         # Snap slider back to center immediately
         self._focus_slider_var.set(0.0)
 
-        # Track position: negative = near, positive = far
-        direction = "near" if value < 0 else "far"
-        step_magnitude = abs(value)
-        # Update FocusBracket's internal position tracker
-        if direction == "near":
-            self._bracket._current_position -= 1
-        else:
-            self._bracket._current_position += 1
-
         def do_move():
             try:
-                self._controller.move_focus(value)
+                self._bracket.move_focus_value(value)
                 self.after(0, self._update_focus_display)
             except Exception as e:
                 self.after(0, messagebox.showerror, "Focus Error", str(e))
@@ -573,7 +566,8 @@ class App(tk.Tk):
         threading.Thread(target=do_move, daemon=True).start()
 
     def _update_focus_display(self):
-        self._lbl_focus_pos.config(text=f"Position: {self._bracket._current_position}")
+        pos = self._bracket._current_position
+        self._lbl_focus_pos.config(text=f"Position: {pos:+.1f}")
         self._update_points_label()
 
     # ══════════════════════════════════════════════════════════════
@@ -595,10 +589,10 @@ class App(tk.Tk):
 
     def _update_points_label(self):
         a_text = "0" if self._bracket.point_a is not None else "—"
-        b_text = str(self._bracket.point_b.step_count) if self._bracket.point_b else "—"
-        dist = self._bracket.total_steps
-        dist_text = str(dist) if dist is not None else "—"
-        self._lbl_points.config(text=f"A: {a_text} | B: {b_text} | Distance: {dist_text} steps")
+        b_text = f"{self._bracket.point_b.position:+.1f}" if self._bracket.point_b else "\u2014"
+        dist = self._bracket.total_distance
+        dist_text = f"{dist:.1f}" if dist is not None else "\u2014"
+        self._lbl_points.config(text=f"A: {a_text} | B: {b_text} | Distance: {dist_text}")
 
     def _on_choose_folder(self, event=None):
         path = filedialog.askdirectory(initialdir=self._download_path, title="Select download folder")
@@ -609,6 +603,15 @@ class App(tk.Tk):
     def _on_start_bracket(self):
         if self._bracket.point_a is None or self._bracket.point_b is None:
             messagebox.showwarning("Focus Bracket", "Set both Point A and Point B first.")
+            return
+
+        if self._bracket.total_distance is not None and self._bracket.total_distance < 0.5:
+            messagebox.showwarning(
+                "Focus Bracket",
+                "Points A and B are at the same position.\n"
+                "Use Near/Far buttons or the slider to move focus\n"
+                "between setting Point A and Point B."
+            )
             return
 
         num_photos = self._num_photos_var.get()
@@ -645,6 +648,22 @@ class App(tk.Tk):
 
     # ── Bracket callbacks (called from bracket thread) ──
 
+    def _on_bracket_start(self):
+        """Pause live view and focus polling to avoid USB contention during captures."""
+        self.after(0, self._pause_for_bracket)
+
+    def _pause_for_bracket(self):
+        logger.info("Pausing live view and focus poll for bracket")
+        self._stop_liveview()
+        self._focus_poll_running = False
+        self._lv_label.config(text="Live view paused during bracket...")
+
+    def _resume_after_bracket(self):
+        logger.info("Resuming live view and focus poll after bracket")
+        self._lv_label.config(text="")
+        self._start_liveview()
+        self._start_focus_poll()
+
     def _on_bracket_progress(self, current: int, total: int, message: str):
         self.after(0, self._update_bracket_ui, current, total, message)
 
@@ -664,6 +683,9 @@ class App(tk.Tk):
         self._lbl_bracket_status.config(text=message)
         self._btn_start_bracket.config(state=tk.NORMAL)
         self._btn_stop_bracket.config(state=tk.DISABLED)
+        # Resume live view and polling
+        if self._controller.connected:
+            self._resume_after_bracket()
 
     # ══════════════════════════════════════════════════════════════
     # CLEANUP
